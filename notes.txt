@@ -1,0 +1,51 @@
+
+
+6/3/2022
+
+so here's a neat idea
+
+the original plan was to have the main header of one block
+then a pile of blocks holding the lookup table and then the data blocks
+the data blocks would contain mother nodes and offspring nodes just like stree.
+the lookup table would only hold pointers to mother nodes, and the mother nodes would
+point to the offspring nodes. all well and good.
+
+but you have to predefine the max size of the device because you need to know where to put
+data block zero. and you can't move it.
+but you can.
+just like we can delete out of the middle and move things from the end to the empty spot
+we can also move block 0 to the end.
+this will allow us to increase the size of lookup table dynamically
+we can also similarly shrink it.
+but what this means is that the location of data block zero is variable, and therefore 
+zero should really start at zero.
+so if there's 5 blocks of lookup table, the first data block is block 6.
+if we need more lookup table, block 6 moves to block 50, and now block 7 is the first data block.
+this means that the first part of the lookup table is actually self referential and not really used
+for data lookup because we need to reserve that space in the lookup table for the space that
+the lookup table is taking up.
+but that should be almost nothing, a block or two here and there.
+
+let's try some examples:
+
+1tb disk, 64k blocks.
+1099511627776 bytes of data
+65536 bytes per block
+
+16777216 blocks.
+each lookup table entry is 4 bytes? 8 bytes?
+let's say 8
+134,217,728 bytes in lookup table.
+
+2048 blocks for lookup table
+
+but that's a fully used 1tb of stored data.
+
+
+
+
+
+
+
+
+

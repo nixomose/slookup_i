@@ -12,3 +12,4 @@ module github.com/nixomose/slookup_i
 
 go 1.18
 
+require github.com/nixomose/nixomosegotools v0.0.0-20220601021307-4fef638de118 // indirect

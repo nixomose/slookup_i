@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/nixomose/nixomosegotools/tools"
-	stree_v_interfaces "github.com/nixomose/stree_v/stree_v_lib/stree_v_interfaces"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_lib"
 )
 
