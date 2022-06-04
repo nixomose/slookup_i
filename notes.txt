@@ -1,5 +1,23 @@
 
 
+6/4/2022
+okay so then I started thinking that we should only ever automatically
+increase the size of the lookup table, and only shrink it on demand.
+a good time to do that would be after a discard request.
+
+then I realized I was being dumb. you can't dynamically shrink the lookup table
+because the lookup table represents a map of the disk. to shrink the table
+would be to shrink the block device. so the good news is we can still use this
+idea to resize the block device bigger or smaller, but there's no point
+doing this early in the process, we're not going to need this feature until
+we're a way more mature library. 
+so for now, let's size the lookup table to the size of the block device as 
+defined when it is created, and leave it at that.
+for future expansion though, we should still do the numbering from zero things
+so the first few blocks of the lookup table should be reserved for the lookup
+table.
+
+
 6/3/2022
 
 so here's a neat idea
