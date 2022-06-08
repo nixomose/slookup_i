@@ -1,0 +1,8 @@
+github.com/ncw/directio v1.0.5 h1:JSUBhdjEvVaJvOoyPAbcW0fnd0tvRXD76wEfZ1KcQz4=
+github.com/ncw/directio v1.0.5/go.mod h1:rX/pKEYkOXBGOggmcyJeJGloCkleSvphPx2eV3t6ROk=
+github.com/nixomose/nixomosegotools v0.0.0-20220601021307-4fef638de118 h1:P3rRcXQccmKLIL6M/Bf6CT++mlK5tLUNMQJTiABgI8o=
+github.com/nixomose/nixomosegotools v0.0.0-20220601021307-4fef638de118/go.mod h1:dBOlDmzSf3z2BaH8feoB7Prtq6du/1z8QXib2bNFLRE=
+github.com/nixomose/stree_v v0.0.0-20220602005859-11e0af24a0ca h1:eVg88T7qOWF8kzSWmx2B/OeKxMgc2NgCQ1BaraV2K7w=
+github.com/nixomose/stree_v v0.0.0-20220602005859-11e0af24a0ca/go.mod h1:CVViBGdFmgqITHNgxmYA/bDlD0rHtMqVoThV1BJ4OC0=
+golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a h1:dGzPydgVsqGcTRVwiLJ1jVbufYwmzD3LfVPLKsKg+0k=
+golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
