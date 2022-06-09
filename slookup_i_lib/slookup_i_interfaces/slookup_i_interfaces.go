@@ -14,6 +14,8 @@ type Slookup_i_backing_store_interface interface {
 		 than we did for stree.
 		 too bad. it would have been cool if the slookup matched stree enough
 		 that we could reuse the interface and then it would have just worked. */
+	/* the backing aligned file store and memory store I think will work fine
+	with the tlog. so there is that at least. */
 
 	Init() tools.Ret
 
