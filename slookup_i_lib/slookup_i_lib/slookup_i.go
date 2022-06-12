@@ -1,8 +1,22 @@
 // SPDX-License-Identifier: LGPL-2.1
 // Copyright (C) 2021-2022 stu mark
 
-/* this is the go library port of stree_iv.
-   actually we should probablhy call it stree_v because it will implement the transaction log somehow. */
+/* this is the implementation of slookup_i.
+   it is half modeled after stree, with the mother and offspring nodes but
+	 instead of being a tree, it's just going to be a simple lookup table.
+	 stree had everything in one node. here we have a lookup table entry with all the metadata
+	 (kept as small as possible since we have to preallocate the whole thing)
+	 and the data is stored starting with the first block after however many blocks
+	 it takes to store the entire lookup table.
+
+	 the lookup table entry has the block number where the data is stored and information
+	 about the offspring nodes if any or who the mother node is, if any.
+	 this is all way simpler than stree, you just look up the location you want, and
+	 voila, data. 2 reads max.
+	 The way we're going to add complexity is by implementing the tlog as part of all
+	 reads and writes.
+	 we never did implement the transaction log in stree_v. oh well.
+	 doesn't matter this will be faster anyway. */
 
 // package name must match directory name
 package slookup_i_lib
@@ -15,7 +29,7 @@ import (
 	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
-	stree_v_interfaces "github.com/nixomose/stree_v/stree_v_lib/stree_v_interfaces"
+	"github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
@@ -142,28 +156,24 @@ import (
 // var _ stree_v_lib.Stree_v_backing_store_internal_interface = &Stree_v{}
 // var _ stree_v_lib.Stree_v_backing_store_internal_interface = (*Stree_v)(nil)
 
-type Stree_v struct {
+type Slookup_i struct {
 
-	/* This is the number of pieces you want to break up a block into. So if you have 128k blocks, and
-	 * you think compression will be of benefit, then make this 8, so you will be able to store your
-	 * 128k block of data in 16k (128/8) if it compresses enough.
-	 * this should be a power of 2 */
-	/* 11/2/2020 okay, we're making this a bit more flexible and from my notes, we're calling them
-	 * offspring.
-	 * So a parent node has a left and a right child node just like stree_iii.
-	 * any given node can either be a mother or an offspring node.
-	 * the mother nodes are basically the first in the chain and are directly
-	 * referred to in the tree (by parents and left and right child), and the offspring are
-	 * only referred to by the mother node, the offspring nodes have parent references to their
-	 * mother node. All nodes are the same size, so we waste a bit of metadata space on the offspring
-	 * nodes, but we can then delete or shuffle any individual offspring or mother node.
-	 */
+	/* this is the guts of the lookup table. it'll be a bit more refined since we worked out all the details in
+	   stree and this is simpler than the stree.
+		 so you have a header for the file in block zero, blocks 1-n are the lookup table entries (slookup_i_entry).
+		 the number of blocks taken up is size of block device / size of slookup_i_entry +1, and that block is
+		 where the data blocks start, aligned and sized exactly to the data unlike stree.
+		 the other cute thing we can do is if we need to expand or shrink the block device, we can move the n+1 block
+		 to the end and shuffle the mother and offspring nodes as appropriate, the opposite of deleting.
+		 so we need a generic block mover than can move a block from anywhere to anywhere else.
+		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
+		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	storage            stree_v_interfaces.Stree_v_backing_store_interface // the backing store mechanism for writing stree_v data
-	m_max_key_length   uint32                                             // this is the maximum size of the key defined by the instantiator
-	m_max_value_length uint32                                             // this is the maximum size of the value
-	m_default_key      string                                             // this is what we make clones from, does not have to be padded to max size
-	m_default_value    []byte
+	transaction_log_storage slookup_i_interterfaces.Stree_v_backing_store_interface // the backing store mechanism for writing stree_v data
+	m_max_key_length        uint32                                                  // this is the maximum size of the key defined by the instantiator
+	m_max_value_length      uint32                                                  // this is the maximum size of the value
+	m_default_key           string                                                  // this is what we make clones from, does not have to be padded to max size
+	m_default_value         []byte
 
 	/* How many elements in the offspring array for each node */
 	m_offspring_per_node       uint32

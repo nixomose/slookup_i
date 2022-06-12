@@ -40,3 +40,30 @@ crash, which I don't think the write back cache could, and items in the write ba
 will be idempotent, which the write back cache weren't either, it just worked because
 we mainatined the order of all the writes.  I think it had a quick hash lookup too.
 everything comes full circle. */
+
+
+
+
+type  Transaction_log struct{
+
+}
+
+
+
+
+
+func  (this *Transaction_log) Init() tools.Ret{
+
+}
+
+Startup() tools.Ret // assumes replay
+
+Shutdown() tools.Ret // should not flush the last transaction if still in flight.
+
+Start_transaction() tools.Ret
+
+Read_block(block_num uint32) (tools.Ret, *[]byte)
+
+Write_block(block_num uint32, n *[]byte) tools.Ret
+
+End_transaction() tools.Ret
