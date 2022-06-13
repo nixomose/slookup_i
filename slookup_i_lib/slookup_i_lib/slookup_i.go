@@ -2,7 +2,7 @@
 // Copyright (C) 2021-2022 stu mark
 
 /* this is the implementation of slookup_i.
-   it is half modeled after stree, with the mother and offspring nodes but
+   it is half modeled on stree, with the mother and offspring nodes but
 	 instead of being a tree, it's just going to be a simple lookup table.
 	 stree had everything in one node. here we have a lookup table entry with all the metadata
 	 (kept as small as possible since we have to preallocate the whole thing)
@@ -29,132 +29,9 @@ import (
 	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
-	"github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
+	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
-
-/* 10/28/2020 so tom just gave me a great idea.
- * if you recall:
- * stree 1 was a binary heap that was searchable so it was actually a binary tree
- * but it turned out that making that tree search-correct after an insert became horribly
- * complicated because all the bubbling up and down moved things that were in the right place
- * into the wrong place and I think there's only one layout of tree that any given combintion
- * of tree can be and still be compact. So that's out.
- *
- * stree 2 was include the pointers to parent and children in the node and just shuffle them
- * about and not require the left node = n*2 and right node =n*2+1.
- * But that left me with the problem of storing metadata nice and compactly but still not
- * knowing where the actual data was, and then the data section of the disk
- * ended up requiring a freelist, or some other allocation scheme.
- *
- * stree 3 implemented here solves that problem by putting the data in the node.
- * This solves the problem of having a fragmented pile of data because the data is now in the
- * node that is compact, it is implemented and it works and the world is good.
- * the downside is that deletes are slow, and all node updates, for which there are many
- * for delete, involve reading the entire data block in as well (although I guess we can optmizie
- * by only reading and writing headers when we just need to update metadata.)
- *
- * But tom's idea is better.
- * Two sections on disk, just like stree 2, the first will be just the stree metata like stree 3
- * and the second section of the disk will be just the raw data. The positions of the data will
- * be known because it will match the position of the same record in the metadata.
- * So if you move metadata tree pos 6 to pos 4, you also move actual data block 6 to block 4,
- * it's two mirrored blocks.
- * This way you can do searches much more quickly because there is way less data to read.
- * although I think we can get almost the same effiency out of stree 3 by only reading and writing
- * metadata when we only need to read and update metadata.
- */
-
-/* recovery. So if we are unable to shutdown cleanly, how can we recover.
- * 1) if the tree is okay, we can calculate the root node by picking the first element and following its
- * parent until it comes up with zero. the only time that wouldn't work is if the tree was empty and element 1
- * was just abandoned after delete but still has valid data.
- *
- * 2) if the tree is okay, we can calculate free position by traversing the whole tree, and just keeping
- * the highest numbered element.
- *
- * 3) if the tree is not okay, have to think of ways we can recover.
- * It might be more robust to just write a transaction log and make sure all the log actions are
- * idempotent (write this thing there, not perform this relative operation) and then recover by
- * replaying the unplayed log, and if something gets replayed twice, no big deal. */
-
-/* unintended side effect: you can't have a block size smaller than the header which at the moment
- * v1 is 32 bytes. so your key + value + 20 has to be 32 or more */
-
-//10/29/2020
-//implement v4 and block devices after you get zen storage working
-
-/* 11/2/2020 so we're going to skip on the store-the-data-in-a-parallel-tree-at-the-end-of-the-disk
- * idea, and for stree_iv we're going to implement the offspring array.
- * then stree_v will be the front and back trees.
- */
-
-/* 12/26/2020 there should be an interface to stree, but at the moment there isn't
- * so stree is called directly, and so be it.
- * The problem is it is not threadsafe, and now that we have sponge in a separate
- * thread, it's pRetty much guaranteed that a sponge will immediately start screwing
- * up the stree when it runs, so we will put a lock around every entry point.
- * might as well make an interface while we're here. */
-
-/* 10/10/2021 so it turns out stree_v will be the port to golang and include the transaction log
-   to make sure the tree can never get messed up. I've been reading a bit about atomic disk writes and it turns
-   out you can't really rely on atomic disk writes, like any of them. The smallest unit of write should be a
-   sector which is either 512 or 4096 depending on the disk. they say you'll either get the old data, the new
-   data or an error or something else. so really nobody guarantees anything. in fact they even say the first
-   part of your sector can be the new data, and the last part of your sector can be the old data.
-   And I think there's nothing saying you can't have the beginning and end be new and the middle be old.
-   so. Best we can do is write markers at the front and back of each sector of transaction log
-   and if our marker is not there for every piece of the transction (including the end of transaction marker)
-   then the entire transaction does not run. if everything is there, then you can run the whole transaction
-   and get your tree from one good state to another good state. */
-
-// type Stree_v_interface interface {
-
-// 	/* 12/26/2020 this is the interface that localstorage calls so these are the functions we
-// 	 * have to lock on. See how I got the compiler to tell me that? */
-
-// 	Get_used_blocks() (Ret, uint32)
-
-// 	Get_total_blocks() (Ret, uint32)
-
-// 	Get_block_size_in_bytes() uint32
-
-// 	Update_or_insert(key string, new_value string) Ret
-
-// 	Fetch(key string) (RetRet Ret, found bool, data string)
-
-// 	Delete(key string, not_found_is_error bool) Ret
-// }
-
-// type Stree_v_internal_interface interface {
-// 	Get_used_blocks() (Ret, uint32)
-
-// 	Get_total_blocks() (Ret, uint32)
-
-// 	Get_block_size_in_bytes() uint32
-
-// 	Update_or_insert(key string, new_value string) Ret
-
-// 	Fetch(key string) (RetRet Ret, found bool, data string)
-
-// 	Delete(key string, not_found_is_error bool) Ret
-
-// 	Node_load(lp uint32) (Ret, *Stree_node)
-
-// 	Get_free_position() uint32
-
-// 	Print()
-
-// 	Get_logger() *tools.Stree_logger
-// }
-
-// verify that stree implements the interface
-// var _ stree_v_lib.Stree_v_backing_store_interface = &Stree_v{}
-// var _ stree_v_lib.Stree_v_backing_store_interface = (*Stree_v)(nil)
-
-// // verify that stree implements the internal interface
-// var _ stree_v_lib.Stree_v_backing_store_internal_interface = &Stree_v{}
-// var _ stree_v_lib.Stree_v_backing_store_internal_interface = (*Stree_v)(nil)
 
 type Slookup_i struct {
 
@@ -169,49 +46,54 @@ type Slookup_i struct {
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	transaction_log_storage slookup_i_interterfaces.Stree_v_backing_store_interface // the backing store mechanism for writing stree_v data
-	m_max_key_length        uint32                                                  // this is the maximum size of the key defined by the instantiator
-	m_max_value_length      uint32                                                  // this is the maximum size of the value
-	m_default_key           string                                                  // this is what we make clones from, does not have to be padded to max size
-	m_default_value         []byte
+	storage                 slookup_i_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
+	transaction_log_storage slookup_i_interfaces.Stree_v_backing_store_interface   // the backing store mechanism for writing stree_v data
+	m_entry_length          uint32                                                 // this is the serilized size of the entry given the number of offspring
+	m_max_value_length      uint32                                                 // this is the maximum size of the value in a storable block, multiple blocks (of mothers and offspring) make up a storable unit
 
 	/* How many elements in the offspring array for each node */
-	m_offspring_per_node       uint32
-	m_verify_client_block_size uint32 // this is only used to make sure the client knows what they're doing.
+	m_offspring_per_node uint32
 
 	/* 12/26/2020 only one of anything in the interface can happen at once, so here's the lock for it. */
 	interface_lock sync.Mutex
 	log            *tools.Nixomosetools_logger
 
-	cached_metadata_size uint32 // calc once and cache the length of the stree node header
-	debugprint           bool
+	m_verify_slookup_i_entry_size uint32 // this is only used to make sure the client knows what they're doing.
+	m_verify_slookup_i_value_size uint32 // same here
+
+	cached_lookup_entry_size uint32 // calc once and cache the length of a lookup table entry
+	debugprint               bool
 }
 
-func New_Stree_v(l *tools.Nixomosetools_logger, b stree_v_interfaces.Stree_v_backing_store_interface, max_key_length uint32,
-	max_value_length uint32, additional_offspring_nodes uint32, verify_client_block_size uint32, default_key string,
-	default_value []byte) *Stree_v {
-	/* caller doesn't know what offspring nodes are and how we can store as much data as node_size * offspring_nodes + 1
-	 * so they just pass us the number of nodes total they want to store, and we subtract accordingly. */
-	var s Stree_v
+// verify that slookup_i implements the interface
+// var _ stree_v_lib.Stree_v_backing_store_interface = &Stree_v{}
+// var _ stree_v_lib.Stree_v_backing_store_interface = (*Stree_v)(nil)
+
+func New_Slookup_i(l *tools.Nixomosetools_logger, b Slookup_i_backing_store_interface,
+	t Transaction_log, entry_size uint32,
+	max_value_length uint32, additional_offspring_nodes uint32) *Slookup_i {
+
+	var s Slookup_i
 	s.log = l
+	/* storage gives you direct access to the backing store so you can init and such */
 	s.storage = b
-	s.m_max_key_length = max_key_length
+	/* the transcation log gives you transactional reads and writes to that backing storage. */
+	s.transaction_log_storage = t
 	s.m_max_value_length = max_value_length // the amount of data that will fit in one node, not one block
-	s.m_default_key = default_key
-	s.m_default_value = default_value
 	s.m_offspring_per_node = additional_offspring_nodes
 	/* (offspring_per_node + 1) * value_length is the max data size we can store per write insert request.
 	 * This is what the client will see as the "block size" which is the max data we can store in a block. */
-	s.m_verify_client_block_size = verify_client_block_size // we only care about this to verify what the client sent us is sane
 	// s.interface_lock   doesn't need to be initted
+	s.m_verify_slookup_i_entry_size = entry_size // so we can verify later
+	s.m_verify_slookup_i_value_size = max_value_length
 	return &s
 }
 
-func (this *Stree_v) Get_logger() *tools.Nixomosetools_logger {
+func (this *Slookup_i) Get_logger() *tools.Nixomosetools_logger {
 	return this.log
 }
 
-func (this *Stree_v) Is_initialized() (tools.Ret, bool) {
+func (this *Slookup_i) Is_initialized() (tools.Ret, bool) {
 	/* check the first 4k for zeroes. */
 
 	var ret, uninitted = this.storage.Is_backing_store_uninitialized()
@@ -225,77 +107,75 @@ func (this *Stree_v) Is_initialized() (tools.Ret, bool) {
 	return nil, true
 }
 
-func (this *Stree_v) Init() tools.Ret {
+func (this *Slookup_i) Init() tools.Ret {
 	/* init the backing store, as in if it's a filestore, write the header info
 	so it becomes initted */
 	return this.storage.Init()
 }
 
-func (this *Stree_v) Startup(force bool) tools.Ret {
-	/* Verify that the numbers the client send us make sense.
-	 * The block size is the amount of space it takes us to store the key the value
-	 * and all the offspring list metadata. */
-	var measure_node *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, this.m_default_key, this.m_default_value, this.m_max_key_length, this.m_max_value_length, uint32(this.m_offspring_per_node))
+func (this *Slookup_i) Startup(force bool) tools.Ret {
+	/* Verify that the lookup entry size and the data block size match what's defined in the backing store */
+	var measure_entry *slookup_i_lib.Slookup_i_entry = slookup_i_lib.New_slookup_entry(this.log, this.m_max_value_length,
+		this.m_offspring_per_node)
 
-	var max_block_size uint32 = measure_node.Serialized_size(this.m_max_key_length, this.m_max_value_length)
+	var max_block_size uint32 = measure_entry.Serialized_size()
 
-	if max_block_size != this.m_verify_client_block_size {
-		return tools.Error(this.log, "the calculated block size ", max_block_size, " doesn't equal ",
-			"supplied block size of ", this.m_verify_client_block_size)
+	// xxxz going to need to read this from the backing store
+	if this.m_entry_length != this.m_verify_slookup_i_entry_size {
+		return tools.Error(this.log, "the recorded lookup entry size ", this.m_entry_length,
+			" doesn't equal supplied block size of ", this.m_verify_slookup_i_entry_size)
 	}
 
-	// we also verify that the value type supplied is within the correct size, make sure client knows what it is doing.
-	if uint32(len(this.m_default_value)) > this.m_max_value_length {
-		return tools.Error(this.log, "the length of the default value ", len(this.m_default_value),
-			" is greater than the provided max value length ", this.m_max_value_length)
-	}
-	if uint32(len(this.m_default_key)) > this.m_max_key_length {
-		return tools.Error(this.log, "the length of the default key ", len(this.m_default_key),
-			" is greater than the provided max key length ", this.m_max_key_length)
+	if max_block_size != this.m_verify_slookup_i_value_size {
+		return tools.Error(this.log, "the calculated data block size ", max_block_size, " doesn't equal ",
+			"supplied block size of ", this.m_verify_slookup_i_value_size)
 	}
 
 	return this.storage.Startup(force)
 }
 
-func (this *Stree_v) Shutdown() tools.Ret {
+func (this *Slookup_i) Shutdown() tools.Ret {
+	/* make sure it's all on disk, note while this might flush the current data to
+	disk if it wasn't already, what it will not do is complete a transaction if it is
+	in flight. If we are for some reason shutting down cleanly enough to be running but
+	not cleanly enough that the application was able to complete an atomic transaction
+	we don't want to write the transcation end into the log, so when it gets replayed
+	it will not apply the last (incomplete) transaction. */
+	var ret = this.transaction_log_storage.Shutdown()
+	if ret != nil {
+		return nil
+	}
 	return this.storage.Shutdown()
 }
 
-func (this *Stree_v) Print(log *tools.Nixomosetools_logger) {
-	var ret, rootnode = this.storage.Get_root_node()
+func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
+	/* Not sure what we're doing here, but probably dumping all lookup entries. */
+	var ret, free_position = this.storage.Get_free_position()
 	if ret != nil {
 		fmt.Println(ret.Get_errmsg())
 		return
 	}
-	if rootnode == 0 {
-		fmt.Println("empty tree")
-	} else {
-		this.print_me(rootnode, "")
-	}
-	fmt.Println()
-	var save_root_node uint32 = rootnode
-
-	ret, free_position := this.storage.Get_free_position()
-	if ret != nil {
-		fmt.Println(ret.Get_errmsg())
-		return
-	}
+	var first_data_position uint32
+	ret, first_data_position = this.storage.Get_first_data_position()
+	// the number of allocated blocks
+	var allocated_blocks uint32 = free_position - first_data_position
 	var lp uint32
-	for lp = 1; lp < free_position; lp++ {
-		var ret, n = this.Node_load(lp)
+	for lp = first_data_position; lp < free_position; lp++ {
+		var ret, e = this.Lookup_entry_load(lp)
 		if ret != nil {
 			fmt.Println(ret.Get_errmsg())
 			return
 		}
-		//xxxz for testing xxxz for debugging.
-		//		var value string = n.Get_value()
-		var _ = n //		fmt.Print("["+Uint32tostring(lp)+"] "+n.Get_key(), " (", value, ") ")
+		//var _ = n //
+		fmt.Print("[" + tools.Uint32tostring(lp) + "] " + e.Dump())
 	}
 	fmt.Println()
-	fmt.Println("root node: ", save_root_node, " free position: ", free_position)
+	fmt.Println("first data postion: ", first_data_position, " free position: ", free_position)
+	fmt.Println("free position: ", free_position)
+	fmt.Println("allocated blocks: ", allocated_blocks)
 }
-
-func (this *Stree_v) Get_metadata_size() uint32 {
+got up to here
+func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	/* return the size of the stree node without the value on the end */
 
 	if this.cached_metadata_size == 0 {
@@ -306,14 +186,14 @@ func (this *Stree_v) Get_metadata_size() uint32 {
 	return this.cached_metadata_size
 }
 
-func (this *Stree_v) Node_load_metadata(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
+func (this *Slookup_i) Node_load_metadata(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
 	/* same as node_load except it only reads enough of the data, or enough
 	   blocks to get the header which is all we need when doing a search through
 	   the tree. obviously the resulting node can't be used to read payload data. */
 	if lp == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to load node zero."), nil
 	}
-	var metadata_size = this.Get_metadata_size()
+	var metadata_size = this.Get_lookup_entry_size()
 	var ret, bresp = this.storage.Load_limit(lp, metadata_size)
 	if ret != nil {
 		return ret, nil
@@ -330,7 +210,7 @@ func (this *Stree_v) Node_load_metadata(lp uint32) (tools.Ret, *stree_v_node.Str
 
 }
 
-func (this *Stree_v) Node_load(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
+func (this *Slookup_i) Node_load(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
 	if lp == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to load node zero."), nil
 	}
@@ -349,7 +229,7 @@ func (this *Stree_v) Node_load(lp uint32) (tools.Ret, *stree_v_node.Stree_node) 
 	return nil, &n
 }
 
-func (this *Stree_v) node_store(pos uint32, n *stree_v_node.Stree_node) tools.Ret {
+func (this *Slookup_i) node_store(pos uint32, n *stree_v_node.Stree_node) tools.Ret {
 	if pos == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to store node zero.")
 	}
@@ -365,7 +245,7 @@ func (this *Stree_v) node_store(pos uint32, n *stree_v_node.Stree_node) tools.Re
 	return ret
 }
 
-func (this *Stree_v) print_me(pos uint32, last_key string) {
+func (this *Slookup_i) print_me(pos uint32, last_key string) {
 
 	var ret, n = this.Node_load(pos)
 	if ret != nil {
@@ -386,7 +266,7 @@ func (this *Stree_v) print_me(pos uint32, last_key string) {
 	}
 }
 
-func (this *Stree_v) calculate_offspring_nodes_for_value(value_length uint32) (tools.Ret, *uint32) {
+func (this *Slookup_i) calculate_offspring_nodes_for_value(value_length uint32) (tools.Ret, *uint32) {
 	/* return how many offspring nodes we need for a value of this length,
 	 * not the total number of nodes, don't include mother node */
 	if value_length == 0 {
@@ -409,7 +289,7 @@ func (this *Stree_v) calculate_offspring_nodes_for_value(value_length uint32) (t
 	return nil, &nnodes
 }
 
-func (this *Stree_v) get_block_size_in_bytes() uint32 {
+func (this *Slookup_i) get_block_size_in_bytes() uint32 {
 	/* this returns the number of bytes of user storable data in a node, it is not the size of the node.
 	 * this is used to report to the user how much space is available to store, so it should be used in the
 	 * used/total block count * this number to denote the number of actual storable bytes. */
@@ -419,7 +299,7 @@ func (this *Stree_v) get_block_size_in_bytes() uint32 {
 	return this.m_max_value_length
 }
 
-func (this *Stree_v) Get_node_size_in_bytes() uint32 {
+func (this *Slookup_i) Get_node_size_in_bytes() uint32 {
 	/* Get_block_size_in_bytes returns the number of bytes you can store in the mother or one of
 	the offpsring entries in a node. This function returns the total number bytes you can store
 	in the entire stree node entry, which is the number of bytes you can store in the mother or
@@ -433,7 +313,7 @@ func (this *Stree_v) Get_node_size_in_bytes() uint32 {
 	return max_node_size
 }
 
-func (this *Stree_v) update(key string, new_value []byte) tools.Ret {
+func (this *Slookup_i) update(key string, new_value []byte) tools.Ret {
 	// return error if not found, otherwise update the data  for key with new value
 	// return error if there was a read or write problem.
 
@@ -465,7 +345,7 @@ func (this *Stree_v) update(key string, new_value []byte) tools.Ret {
 	return this.perform_new_value_write(n, pos, new_value)
 }
 
-func (this *Stree_v) perform_new_value_write(mother_node *stree_v_node.Stree_node, mother_node_pos uint32, new_value []byte) tools.Ret {
+func (this *Slookup_i) perform_new_value_write(mother_node *stree_v_node.Stree_node, mother_node_pos uint32, new_value []byte) tools.Ret {
 	/* this handles new inserts and updates. In the case of insert it will either just write the value in the mother
 	 * node and expand into offspring if need be, in the case of updates, it can possibly grow or shrink the
 	 * offspring list. */
@@ -674,7 +554,7 @@ func (this *Stree_v) perform_new_value_write(mother_node *stree_v_node.Stree_nod
 	return nil
 }
 
-func (this *Stree_v) Update_or_insert(key string, new_value []byte) tools.Ret {
+func (this *Slookup_i) Update_or_insert(key string, new_value []byte) tools.Ret {
 	/* this function will insert if not there and update if there, so no duplicates will be created in
 	 * this situation. */
 	this.interface_lock.Lock()
@@ -682,7 +562,7 @@ func (this *Stree_v) Update_or_insert(key string, new_value []byte) tools.Ret {
 	return this.update_or_insert_always(key, new_value, false)
 }
 
-func (this *Stree_v) update_or_insert_always(key string, new_value []byte, insert_always bool) tools.Ret {
+func (this *Slookup_i) update_or_insert_always(key string, new_value []byte, insert_always bool) tools.Ret {
 
 	/* if we are forcing an insert, if it is not found we will end up at a leaf, and if it is found
 	 * we will end up at the leafiest of the matching node */
@@ -801,18 +681,18 @@ func (this *Stree_v) update_or_insert_always(key string, new_value []byte, inser
 	return this.perform_new_value_write(fn, fpos, new_value)
 }
 
-func (this *Stree_v) deallocate_on_failure() {
+func (this *Slookup_i) deallocate_on_failure() {
 	var deRet tools.Ret = this.storage.Deallocate()
 	if deRet != nil {
 		tools.Error(this.log, "unable to deallocate tree item after insert failure, tree is corrupt: ", deRet.Get_errmsg())
 	}
 }
 
-func (this *Stree_v) Insert(key string, value []byte) tools.Ret {
+func (this *Slookup_i) Insert(key string, value []byte) tools.Ret {
 	return this.update_or_insert_always(key, value, true)
 }
 
-func (this *Stree_v) Fetch(key string) (Ret tools.Ret, Retfoundresp bool, resp []byte) {
+func (this *Slookup_i) Fetch(key string) (Ret tools.Ret, Retfoundresp bool, resp []byte) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
@@ -837,7 +717,7 @@ func (this *Stree_v) Fetch(key string) (Ret tools.Ret, Retfoundresp bool, resp [
 	return fRet, true, respdata
 }
 
-func (this *Stree_v) fetch_stree_data(found_mother_node stree_v_node.Stree_node) (tools.Ret, []byte) {
+func (this *Slookup_i) fetch_stree_data(found_mother_node stree_v_node.Stree_node) (tools.Ret, []byte) {
 	// we don't know how much data there is, but we know it can't be bigger than this.
 	/* actually we CAN know what it is, actually, we can almost know. we need the variable size value
 	 * in the last offspring node, and that we don't find out until we read it in, so we can either size
@@ -886,7 +766,7 @@ func (this *Stree_v) fetch_stree_data(found_mother_node stree_v_node.Stree_node)
 	return nil, exactdata
 }
 
-func (this *Stree_v) search(key string, to_insert bool) (fRet tools.Ret, respfound bool, respnode *stree_v_node.Stree_node, respnodepos uint32) {
+func (this *Slookup_i) search(key string, to_insert bool) (fRet tools.Ret, respfound bool, respnode *stree_v_node.Stree_node, respnodepos uint32) {
 	/* internal use for insert and update and delete and fetch, use fetch to actually get the data as a client. */
 	// upon search success (finding the node) it returns found boolean, the node and the position of that node
 	// if not found it returns not found boolean the node and position of the last search point.
@@ -964,7 +844,7 @@ func (this *Stree_v) search(key string, to_insert bool) (fRet tools.Ret, respfou
 /* ahhh, I looked it up, it's for the write back cache. because deletes are expensive, we
 process the write back cache from the end, so the delete is relatively cheap.
 what order we process the write back cache in doesn't matter, so this is perfectly fine. */
-func (this *Stree_v) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
+func (this *Slookup_i) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
 	/* if there is no data in the stree, return foundresp false, otherwise return true
 	 * and send back the data for the last physical block in the stree. */
 	/* THIS ONLY WORKS IF YOU HAVE AN STREE WITH NO OFFSPRING. if there are offspring, the last physical
@@ -1014,7 +894,7 @@ func (this *Stree_v) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
 	return nil, true, &resp
 }
 
-func (this *Stree_v) find_deeper_path(pos uint32) (a tools.Ret, iresp uint32) {
+func (this *Slookup_i) find_deeper_path(pos uint32) (a tools.Ret, iresp uint32) {
 	/* follow rightmost of left child and leftmost of right child and return the one in the
 	 * lowest/deepest position. */
 	if pos == 0 {
@@ -1055,7 +935,7 @@ func (this *Stree_v) find_deeper_path(pos uint32) (a tools.Ret, iresp uint32) {
 	return nil, deepest
 }
 
-func (this *Stree_v) logically_delete(pos uint32) tools.Ret {
+func (this *Slookup_i) logically_delete(pos uint32) tools.Ret {
 	/* step 1, the delete algorithm:
 	   * if there's no children, update parent's child to point to nothing.
 	   * if node has one child, update parent's child to point to deleted node's child
@@ -1233,7 +1113,7 @@ func (this *Stree_v) logically_delete(pos uint32) tools.Ret {
 	return this.logically_delete_two_kids(pos)
 }
 
-func (this *Stree_v) logically_delete_two_kids(pos uint32) tools.Ret {
+func (this *Slookup_i) logically_delete_two_kids(pos uint32) tools.Ret {
 	/* the trick is to get my immediate sucessor or predecessor
 	   and put them in my spot.
 	   The predecessor is found by going left once and going right
@@ -1354,7 +1234,7 @@ func (this *Stree_v) logically_delete_two_kids(pos uint32) tools.Ret {
 	return this.logically_orphan_mother_node(pos) // set pointers to max_int for physical delete later.
 }
 
-func (this *Stree_v) logically_orphan_mother_node(pos uint32) tools.Ret {
+func (this *Slookup_i) logically_orphan_mother_node(pos uint32) tools.Ret {
 	/* 11/20/2020 when we logically delete a mother node, we must flag its relations as max_int
 	 * to deal with a physically delete problem, later.
 	 * I now realize this is all way more complicated than I expected and it would have made more
@@ -1378,7 +1258,7 @@ func (this *Stree_v) logically_orphan_mother_node(pos uint32) tools.Ret {
 	return nil
 }
 
-func (this *Stree_v) physically_delete(pos uint32) tools.Ret {
+func (this *Slookup_i) physically_delete(pos uint32) tools.Ret {
 	/* step 2, is just physically copy the data from the last node to the hole,
 	 * then find the parent of the moved node and repoint it to the newly filled hole,
 	 * then the children's parents must also be set to its new location, the newly
@@ -1537,7 +1417,7 @@ func (this *Stree_v) physically_delete(pos uint32) tools.Ret {
 	return nil
 }
 
-func (this *Stree_v) clean_deleted_offspring_from_mother(toremove_pos uint32) tools.Ret {
+func (this *Slookup_i) clean_deleted_offspring_from_mother(toremove_pos uint32) tools.Ret {
 	// caller already loaded pos into toremove, this is a double read, but that's what caches are for.
 
 	var ret, resp = this.Node_load(toremove_pos)
@@ -1590,7 +1470,7 @@ func (this *Stree_v) clean_deleted_offspring_from_mother(toremove_pos uint32) to
 	return nil
 }
 
-func (this *Stree_v) physically_delete_one(pos uint32) (tools.Ret /* moved_resp_from */, uint32 /* moved_resp_to*/, uint32) {
+func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_resp_from */, uint32 /* moved_resp_to*/, uint32) {
 	/* 11/9/2020 Okay, now that we've separated it into two parts, it's not that bad.
 	 * the first part figures out what to delete and updates the list if things got moved,
 	 * and here, we just delete one. deleting the mother node is same as always, we have to update
@@ -1973,7 +1853,7 @@ func (this *Stree_v) physically_delete_one(pos uint32) (tools.Ret /* moved_resp_
 	return this.storage.Deallocate(), moved_resp_from, moved_resp_to
 }
 
-func (this *Stree_v) Delete(key string, not_found_is_error bool) tools.Ret {
+func (this *Slookup_i) Delete(key string, not_found_is_error bool) tools.Ret {
 	// if you want to print the pre-delete tree.
 	//        ArrayList<Integer> iresp = new ArrayList<Integer>();
 	//        String Ret = this.storage.get_root_node(iresp);
@@ -2023,7 +1903,7 @@ func (this *Stree_v) Delete(key string, not_found_is_error bool) tools.Ret {
 	return nil
 }
 
-func (this *Stree_v) Get_free_position() uint32 { // package scope
+func (this *Slookup_i) Get_free_position() uint32 { // package scope
 	// only used for treeprinter
 
 	var ret, iresp = this.storage.Get_free_position()
@@ -2035,7 +1915,7 @@ func (this *Stree_v) Get_free_position() uint32 { // package scope
 }
 
 /* in java there is a package scope, but I don't think go has that, so it's public. */
-func (this *Stree_v) Get_root_node() uint32 {
+func (this *Slookup_i) Get_root_node() uint32 {
 	// only used for treeprinter, package scope
 
 	var ret, iresp = this.storage.Get_root_node()
@@ -2070,13 +1950,13 @@ func Calculate_block_size(log *tools.Nixomosetools_logger, key_type string, valu
 	return nil, uint32(serialized_size)
 }
 
-func (this *Stree_v) Get_used_blocks() (tools.Ret, uint32) {
+func (this *Slookup_i) Get_used_blocks() (tools.Ret, uint32) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 	return this.storage.Get_free_position()
 }
 
-func (this *Stree_v) Get_total_blocks() (tools.Ret, uint32) {
+func (this *Slookup_i) Get_total_blocks() (tools.Ret, uint32) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 	return this.storage.Get_total_blocks()
@@ -2091,7 +1971,7 @@ func (this *Stree_v) Get_total_blocks() (tools.Ret, uint32) {
 // 	return s.m_max_value_length
 // }
 
-func (this *Stree_v) Diag_dump(printtree bool) {
+func (this *Slookup_i) Diag_dump(printtree bool) {
 	/* load all active nodes and print out their contents */
 
 	var root_node = this.Get_root_node()
@@ -2116,7 +1996,7 @@ func (this *Stree_v) Diag_dump(printtree bool) {
 
 }
 
-func (this *Stree_v) diag_dump_one(lp uint32) {
+func (this *Slookup_i) diag_dump_one(lp uint32) {
 
 	var ret, nresp = this.Node_load(lp)
 	if ret != nil {
@@ -2158,11 +2038,11 @@ func (this *Stree_v) diag_dump_one(lp uint32) {
 	}
 }
 
-func (this *Stree_v) Wipe() tools.Ret {
+func (this *Slookup_i) Wipe() tools.Ret {
 	return this.storage.Wipe()
 }
 
-func (this *Stree_v) Dispose() tools.Ret {
+func (this *Slookup_i) Dispose() tools.Ret {
 	this.Shutdown()
 	return this.storage.Dispose()
 }

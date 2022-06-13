@@ -11,7 +11,7 @@ import (
 	"github.com/nixomose/nixomosegotools/tools"
 )
 
-type Slookup_entry struct {
+type Slookup_i_entry struct {
 	log *tools.Nixomosetools_logger
 	/* unlike stree, we don't store keys and values, we store block positions and data at that block position
 	and the data is exactly block_size length and fits nicely aligned on disk. the lookup table, not so much
@@ -67,12 +67,12 @@ type Slookup_entry struct {
 	max_value_length uint32
 }
 
-func New_slookup_entry(l *tools.Nixomosetools_logger, Val []byte, Max_value_length uint32,
-	Additional_offspring_nodes uint32) *Slookup_entry {
+func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32,
+	Additional_offspring_nodes uint32) *Slookup_i_entry {
 
-	var n Slookup_entry
+	var n Slookup_i_entry
 	n.log = l
-	n.value = Val
+	n.value = nil
 	n.data_block_num = 0
 	n.max_value_length = Max_value_length
 	// if the array is null then you are an offspring node, otherwise you are a mother node.
@@ -89,14 +89,14 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Val []byte, Max_value_leng
 	return &n
 }
 
-func (this *Slookup_entry) Get_value() []byte {
+func (this *Slookup_i_entry) Get_value() []byte {
 	return this.value
 }
 
-func (this *Slookup_entry) Init() {
+func (this *Slookup_i_entry) Init() {
 }
 
-func (this *Slookup_entry) Set_value(new_value []byte) tools.Ret {
+func (this *Slookup_i_entry) Set_value(new_value []byte) tools.Ret {
 	// make sure the value we're setting doesn't exceed the limits we said we can store
 
 	if uint32(len(new_value)) > this.max_value_length {
@@ -106,21 +106,21 @@ func (this *Slookup_entry) Set_value(new_value []byte) tools.Ret {
 	return nil
 }
 
-func (this *Slookup_entry) Get_mother_block_num() uint32 {
+func (this *Slookup_i_entry) Get_mother_block_num() uint32 {
 	/* unlike stree, there is no parent, there is only the mother block for which this offspring is a part of (if it is
 	an offspring node) */
 	return this.mother_block_num
 }
 
-func (this *Slookup_entry) Get_value_length() uint32 {
+func (this *Slookup_i_entry) Get_value_length() uint32 {
 	return this.max_value_length
 }
 
-func (this *Slookup_entry) Set_mother_block_num(spos uint32) {
+func (this *Slookup_i_entry) Set_mother_block_num(spos uint32) {
 	this.mother_block_num = spos
 }
 
-func (this *Slookup_entry) Set_offspring_pos(offspring_pos uint32, node_pos uint32) tools.Ret {
+func (this *Slookup_i_entry) Set_offspring_pos(offspring_pos uint32, node_pos uint32) tools.Ret {
 	if offspring_pos > this.offspring_nodes {
 		return tools.Error(this.log, "trying to set offspring pos ", offspring_pos,
 			" which is greater than the number of offpsring nodes ", this.offspring_nodes)
@@ -132,7 +132,7 @@ func (this *Slookup_entry) Set_offspring_pos(offspring_pos uint32, node_pos uint
 	return nil
 }
 
-func (this *Slookup_entry) Is_offspring() bool {
+func (this *Slookup_i_entry) Is_offspring() bool {
 	/* 6/22/2021 the node's offspring variable is non null if we're the mother node because the mother has a list
 	 * of offspring, and the offspring do not. However, we missed a case where if the whole stree is not set up
 	 * to use offspring, then offspring is null in the mother node as well. */
@@ -145,7 +145,7 @@ func (this *Slookup_entry) Is_offspring() bool {
 	return false
 }
 
-func (this *Slookup_entry) Get_offspring_pos(offspring_pos uint32) (tools.Ret, *uint32) {
+func (this *Slookup_i_entry) Get_offspring_pos(offspring_pos uint32) (tools.Ret, *uint32) {
 	if offspring_pos > this.offspring_nodes {
 		return tools.Error(this.log, "trying to get offspring pos ", offspring_pos,
 			" which is greater than the number of offpsring nodes ", this.offspring_nodes), nil
@@ -157,7 +157,7 @@ func (this *Slookup_entry) Get_offspring_pos(offspring_pos uint32) (tools.Ret, *
 	return nil, &(*this.offspring)[offspring_pos]
 }
 
-func (this *Slookup_entry) Serialized_size() uint32 {
+func (this *Slookup_i_entry) Serialized_size() uint32 {
 	/* return the size of this node in bytes when it is serialized in the serialize function below
 	* ie, add up all the sizes of the fields we're going to serialize.
 	stree stores the key and value in the node, slookup does not, so the lookup table entry will always be
@@ -178,7 +178,7 @@ func (this *Slookup_entry) Serialized_size() uint32 {
 	return retval
 }
 
-func (this *Slookup_entry) Serialize() (tools.Ret, *bytes.Buffer) {
+func (this *Slookup_i_entry) Serialize() (tools.Ret, *bytes.Buffer) {
 	/* serialize this node into a byte array, which defines the length of a horribly misaligned lookup table entry */
 	var bval []byte = this.value
 	var ssize uint32 = this.Serialized_size() // see below, we specifically store the length stored not the padded out length
@@ -213,7 +213,7 @@ func (this *Slookup_entry) Serialize() (tools.Ret, *bytes.Buffer) {
 	return nil, bb
 }
 
-func (this *Slookup_entry) Deserialize(log tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
+func (this *Slookup_i_entry) Deserialize(log tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
 	/* deserialize incoming data into this entry */
 
 	var bpos int = 0
@@ -245,7 +245,7 @@ func (this *Slookup_entry) Deserialize(log tools.Nixomosetools_logger, bs *[]byt
 	return nil
 }
 
-func (this *Slookup_entry) Count_offspring() uint32 {
+func (this *Slookup_i_entry) Count_offspring() uint32 {
 	if this.offspring == nil {
 		return 0
 	}
