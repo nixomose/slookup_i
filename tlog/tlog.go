@@ -1,5 +1,7 @@
 package tlog
 
+import "github.com/nixomose/nixomosegotools/tools"
+
 /* this is the implementation of the transaction log.
 
    you start a transaction
@@ -41,29 +43,21 @@ will be idempotent, which the write back cache weren't either, it just worked be
 we mainatined the order of all the writes.  I think it had a quick hash lookup too.
 everything comes full circle. */
 
+type Transaction_log struct {
+}
 
-
-
-type  Transaction_log struct{
+func (this *Transaction_log) Init() tools.Ret {
 
 }
 
-
-
-
-
-func  (this *Transaction_log) Init() tools.Ret{
-
+func (this *Transaction_log) Startup() tools.Ret { // assumes replay
 }
-
-Startup() tools.Ret // assumes replay
-
-Shutdown() tools.Ret // should not flush the last transaction if still in flight.
-
-Start_transaction() tools.Ret
-
-Read_block(block_num uint32) (tools.Ret, *[]byte)
-
-Write_block(block_num uint32, n *[]byte) tools.Ret
-
-End_transaction() tools.Ret
+func (this *Transaction_log) Shutdown() tools.Ret { // should not flush the last transaction if still in flight.
+}
+func (this *Transaction_log) Start_transaction() tools.Ret {
+}
+func (this *Transaction_log) Read_block(block_num uint32) (tools.Ret, *[]byte) {
+}
+func (this *Transaction_log) Write_block(block_num uint32, n *[]byte) tools.Ret {
+}
+func (this *Transaction_log) End_transaction() tools.Ret {}

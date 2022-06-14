@@ -29,7 +29,6 @@ import (
 	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
-	"github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
@@ -169,10 +168,10 @@ type Slookup_i struct {
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	transaction_log_storage slookup_i_interterfaces.Stree_v_backing_store_interface // the backing store mechanism for writing stree_v data
-	m_max_key_length        uint32                                                  // this is the maximum size of the key defined by the instantiator
-	m_max_value_length      uint32                                                  // this is the maximum size of the value
-	m_default_key           string                                                  // this is what we make clones from, does not have to be padded to max size
+	transaction_log_storage Transaction_log_interface // the backing store mechanism for writing stree_v data
+	m_max_key_length        uint32                    // this is the maximum size of the key defined by the instantiator
+	m_max_value_length      uint32                    // this is the maximum size of the value
+	m_default_key           string                    // this is what we make clones from, does not have to be padded to max size
 	m_default_value         []byte
 
 	/* How many elements in the offspring array for each node */
