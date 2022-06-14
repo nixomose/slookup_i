@@ -29,10 +29,7 @@ import (
 	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
-<<<<<<< HEAD
-=======
 	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
->>>>>>> 7913470dab8631fa289edb19c00cb29a908994cc
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
@@ -50,7 +47,7 @@ type Slookup_i struct {
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
 	storage                 slookup_i_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
-	transaction_log_storage Transaction_log_interface // the backing store mechanism for writing stree_v data
+	transaction_log_storage Transaction_log_interface                              // the backing store mechanism for writing stree_v data
 	transaction_log_storage slookup_i_interfaces.Stree_v_backing_store_interface   // the backing store mechanism for writing stree_v data
 	m_entry_length          uint32                                                 // this is the serilized size of the entry given the number of offspring
 	m_max_value_length      uint32                                                 // this is the maximum size of the value in a storable block, multiple blocks (of mothers and offspring) make up a storable unit
@@ -65,8 +62,7 @@ type Slookup_i struct {
 	m_verify_slookup_i_entry_size uint32 // this is only used to make sure the client knows what they're doing.
 	m_verify_slookup_i_value_size uint32 // same here
 
-	cached_lookup_entry_size uint32 // calc once and cache the length of a lookup table entry
-	debugprint               bool
+	debugprint bool
 }
 
 // verify that slookup_i implements the interface
@@ -178,41 +174,54 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 	fmt.Println("free position: ", free_position)
 	fmt.Println("allocated blocks: ", allocated_blocks)
 }
-got up to here
+
 func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	/* return the size of the stree node without the value on the end */
-
-	if this.cached_metadata_size == 0 {
-		var n stree_v_node.Stree_node = *stree_v_node.New_Stree_node(this.log, this.m_default_key, this.m_default_value,
-			this.m_max_key_length, this.m_max_value_length, this.m_offspring_per_node)
-		this.cached_metadata_size = n.Serialized_size_without_value(this.m_max_key_length, this.m_max_value_length)
-	}
-	return this.cached_metadata_size
+	return this.m_entry_length
 }
 
-func (this *Slookup_i) Node_load_metadata(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
-	/* same as node_load except it only reads enough of the data, or enough
-	   blocks to get the header which is all we need when doing a search through
-	   the tree. obviously the resulting node can't be used to read payload data. */
-	if lp == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to load node zero."), nil
+func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib.Slookup_i_entry) {
+	/* read only the lookup entry for a block num. */
+	if block_num == 0 {
+		return tools.Error(this.log, "sanity failure, somebody is trying to load block zero."), nil
 	}
-	var metadata_size = this.Get_lookup_entry_size()
-	var ret, bresp = this.storage.Load_limit(lp, metadata_size)
-	if ret != nil {
-		return ret, nil
+
+	if block_num < this.storage.Get_first_data_position() {
+		return tools.Error(this.log, "sanity failure, somebody is trying to load a block of data in the lookup table: ",
+			"block_num: ", block_num, " first data pos: ", this.storage.Get_first_data_position()), nil
 	}
-	// without clone this will add the same instance to every node
-	// that might be okay because I think possibly the node gets replaced anyway? not sure. better safe than sorry.
-	var n stree_v_node.Stree_node = *stree_v_node.New_Stree_node(this.log, this.m_default_key, this.m_default_value,
-		this.m_max_key_length, this.m_max_value_length, this.m_offspring_per_node)
-	ret = n.Deserialize_without_value(*this.log, bresp)
-	if ret != nil {
-		return ret, nil
+	if block_num >= this.storage.Get_free_position() { // xxxz check for off by one here.
+		return tools.Error(this.log, "sanity failure, somebody is trying to load a block of data past the last allocated block: ",
+			"block_num: ", block_num, " free position: ", this.storage.Get_free_position()), nil
 	}
-	return nil, &n
+
+	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
+	   so we might have to concatenate. */
+	var start_pos = block_num * this.Get_lookup_entry_size()
+	var start_block = (start_pos / this.get_block_size_in_bytes()) + 1 // lookup table starts at block 1
+
+	var end_pos = start_pos + this.Get_lookup_entry_size()
+	var end_block = (end_pos / this.get_block_size_in_bytes()) + 1
+
+	var alldata []byte = make([]byte, 0)
+	for lp := start_block; lp < (end_block + 1); lp++ {
+		var ret, data = this.transaction_log_storage.Read_block(lp)
+		if ret != nil {
+			return ret, nil
+		}
+		alldata = append(alldata, data)
+	}
+
+	// get the position of this entry in this alldata
+	var start_offset = start_pos - (start_block * this.get_block_size_in_bytes())
+	var entrydata = alldata[start_offset:this.Get_lookup_entry_size()]
+	var entry = slookup_i_lib.New_slookup_entry(this.log, this.m_max_value_length, this.m_offspring_per_node)
+	var ret = entry.Deserialize(this.log, &entrydata)
+	return ret, entry
 
 }
+
+// xxxz got up to here.
 
 func (this *Slookup_i) Node_load(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
 	if lp == 0 {

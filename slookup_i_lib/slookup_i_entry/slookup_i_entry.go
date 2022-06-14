@@ -213,7 +213,7 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *bytes.Buffer) {
 	return nil, bb
 }
 
-func (this *Slookup_i_entry) Deserialize(log tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
+func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
 	/* deserialize incoming data into this entry */
 
 	var bpos int = 0
