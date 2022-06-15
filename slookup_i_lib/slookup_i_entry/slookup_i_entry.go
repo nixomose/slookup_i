@@ -106,6 +106,11 @@ func (this *Slookup_i_entry) Set_value(new_value []byte) tools.Ret {
 	return nil
 }
 
+func (this *Slookup_i_entry) Get_data_block_num() uint32 {
+	/* return the block num this entry refers to where it's data is. */
+	return this.data_block_num
+}
+
 func (this *Slookup_i_entry) Get_mother_block_num() uint32 {
 	/* unlike stree, there is no parent, there is only the mother block for which this offspring is a part of (if it is
 	an offspring node) */
