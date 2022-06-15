@@ -155,6 +155,7 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 		fmt.Println(ret.Get_errmsg())
 		return
 	}
+	// this is really a slookup piece of data but it's actually persistently stored in storage so that's where we get it from.
 	var first_data_position uint32
 	ret, first_data_position = this.storage.Get_first_data_position()
 	// the number of allocated blocks
@@ -221,26 +222,53 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 
 }
 
-// xxxz got up to here.
+func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.Ret, *[]byte) {
+	/* given a lookup table entry, load the data the entry refers to. this just raw reads the
+	block from the correct location. */
 
-func (this *Slookup_i) Node_load(lp uint32) (tools.Ret, *stree_v_node.Stree_node) {
-	if lp == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to load node zero."), nil
+	if entry == nil {
+		return tools.Error(this.log, "sanity failure, block_load got nil entry."), nil
 	}
-	var ret, bresp = this.storage.Load(lp)
+
+	var data_block_num = entry.Get_data_block_num()
+	if data_block_num == 0 {
+		return tools.Error(this.log, "sanity failure, somebody is trying to block_load block zero."), nil
+	}
+
+	/* Now this is intersting. we read the first data position directly from the storage back end and not
+	the transaction log layer so it would be possible to think that there was some change that could be in the transaction
+	log somewhere that would alter the data of the first block position and we should read it from the transaction log,
+	not directly from the backing storage. The reason this is okay, is that this doesn't change. the only way to move
+	the first data position is with a resize, and that's going to be all sorts of complicated so we should probably make it
+	an exclusive-activity event. But really... I guess we don't have to, we can just put the root header block in the tlog too.
+	yeah we should probably do that too, and then cache the value here in slookup_i, not storage.
+	really, nobody should go after storage directly.
+	everything goes through the transaction log, just like we did with the write back cache in zos */
+	var ret, first_data_position = this.storage.Get_first_data_position()
+	if ret != nil {
+		return ret
+	}
+
+	if data_block_num < first_data_position {
+		return tools.Error(this.log, "sanity failure, somebody is trying to block_load data that is in the lookup table block space: ",
+			"data_block_num: ", data_block_num, " first data_position: ", first_data_position), nil
+	}
+
+	var data *[]byte
+	ret, data = this.transaction_log_storage.Read_block(data_block_num)
 	if ret != nil {
 		return ret, nil
 	}
-	// without clone this will add the same instance to every node
-	// that might be okay because I think possibly the node gets replaced anyway? not sure. better safe than sorry.
-	var n stree_v_node.Stree_node = *stree_v_node.New_Stree_node(this.log, this.m_default_key, this.m_default_value,
-		this.m_max_key_length, this.m_max_value_length, this.m_offspring_per_node)
-	ret = n.Deserialize(*this.log, bresp)
-	if ret != nil {
-		return ret, nil
+
+	if uint32(len(*data)) > this.m_max_value_length {
+		return tools.Error(this.log, "transaction_log read block returned data of length: ", len(*data),
+			"which is more than the max data block size: ", this.m_max_value_length), nil
 	}
-	return nil, &n
+
+	return nil, data
 }
+
+/// got up to here.
 
 func (this *Slookup_i) node_store(pos uint32, n *stree_v_node.Stree_node) tools.Ret {
 	if pos == 0 {
