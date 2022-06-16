@@ -150,14 +150,14 @@ func (this *Slookup_i) Shutdown() tools.Ret {
 
 func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 	/* Not sure what we're doing here, but probably dumping all lookup entries. */
-	var ret, free_position = this.storage.Get_free_position()
+	var ret, free_position = this.Get_free_position()
 	if ret != nil {
 		fmt.Println(ret.Get_errmsg())
 		return
 	}
 	// this is really a slookup piece of data but it's actually persistently stored in storage so that's where we get it from.
 	var first_data_position uint32
-	ret, first_data_position = this.storage.Get_first_data_position()
+	ret, first_data_position = this.Get_first_data_position()
 	// the number of allocated blocks
 	var allocated_blocks uint32 = free_position - first_data_position
 	var lp uint32
@@ -181,50 +181,78 @@ func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	return this.m_entry_length
 }
 
+/* the idea of using the transaction log for everything includes the header block because updating things like
+the free position will become part of a transaction. as such since we hit it a lot, we're going to cache
+it here so we don't actually read the block every single time we ask for it. it is sorta a storage thing
+but it is also sorta a slookup_i thing, but it's more a slookup_i thing, so we'll put it here. */
+
+func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
+	/* for now, read the header block from the transaction log, deserialize it and return the free position */
+	// we can make a cache later.
+}
+func (this *Slookup_i) Get_first_data_position() (tools.Ret, uint32) {
+	/* for now, read the header block from the transaction log, deserialize it and return the first data position
+	   based on the size of the block device and how many bytes per entry we have. */
+	// we can make a cache later.
+}
+
+func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
+	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
+
+	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
+	so we might have to concatenate. */
+	start_pos = block_num * this.Get_lookup_entry_size()
+	start_block = (start_pos / this.get_block_size_in_bytes()) + 1 // lookup table starts at block 1
+
+	end_pos = start_pos + this.Get_lookup_entry_size()
+	end_block = (end_pos / this.get_block_size_in_bytes()) + 1
+
+	*alldata = make([]byte, 0)
+	for lp := start_block; lp < (end_block + 1); lp++ {
+		var data []byte
+		ret, data = this.transaction_log_storage.Read_block(lp)
+		if ret != nil {
+			return
+		}
+		*alldata = append(*alldata, data...)
+	}
+
+	// get the position of this entry in this alldata
+	start_offset = start_pos - (start_block * this.get_block_size_in_bytes())
+	return
+}
+
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib.Slookup_i_entry) {
 	/* read only the lookup entry for a block num. */
 	if block_num == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to load block zero."), nil
 	}
 
-	if block_num < this.storage.Get_first_data_position() {
-		return tools.Error(this.log, "sanity failure, somebody is trying to load a block of data in the lookup table: ",
-			"block_num: ", block_num, " first data pos: ", this.storage.Get_first_data_position()), nil
+	var ret, total_blocks = this.Get_total_blocks()
+	if ret != nil {
+		return ret, nil
 	}
-	if block_num >= this.storage.Get_free_position() { // xxxz check for off by one here.
-		return tools.Error(this.log, "sanity failure, somebody is trying to load a block of data past the last allocated block: ",
-			"block_num: ", block_num, " free position: ", this.storage.Get_free_position()), nil
-	}
-
-	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
-	   so we might have to concatenate. */
-	var start_pos = block_num * this.Get_lookup_entry_size()
-	var start_block = (start_pos / this.get_block_size_in_bytes()) + 1 // lookup table starts at block 1
-
-	var end_pos = start_pos + this.Get_lookup_entry_size()
-	var end_block = (end_pos / this.get_block_size_in_bytes()) + 1
-
-	var alldata []byte = make([]byte, 0)
-	for lp := start_block; lp < (end_block + 1); lp++ {
-		var ret, data = this.transaction_log_storage.Read_block(lp)
-		if ret != nil {
-			return ret, nil
-		}
-		alldata = append(alldata, data)
+	if block_num > total_blocks {
+		return tools.Error(this.log, "sanity failure, somebody is trying to load a lookup entry beyond the end of the lookup table: ",
+			"block_num: ", block_num, " total blocks: ", total_blocks), nil
 	}
 
-	// get the position of this entry in this alldata
-	var start_offset = start_pos - (start_block * this.get_block_size_in_bytes())
-	var entrydata = alldata[start_offset:this.Get_lookup_entry_size()]
+	var start_pos, start_block, end_pos, end_block, start_offset uint32
+	var alldata *[]byte
+	ret, start_pos, start_block, end_pos, end_block, start_offset, alldata = this.internal_entry_load(block_num)
+	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size()]
 	var entry = slookup_i_lib.New_slookup_entry(this.log, this.m_max_value_length, this.m_offspring_per_node)
-	var ret = entry.Deserialize(this.log, &entrydata)
+	ret = entry.Deserialize(this.log, &entrydata)
 	return ret, entry
-
 }
 
 func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.Ret, *[]byte) {
 	/* given a lookup table entry, load the data the entry refers to. this just raw reads the
-	block from the correct location. */
+	data block from the correct location.
+	All data block locations are relative to the beginning of the block device, not the
+	start position of the data after the lookup table. The reason is we may resize the
+	lookup table someday and we don't want the blocks to move when the start-of-data block
+	moves. */
 
 	if entry == nil {
 		return tools.Error(this.log, "sanity failure, block_load got nil entry."), nil
@@ -235,18 +263,9 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.R
 		return tools.Error(this.log, "sanity failure, somebody is trying to block_load block zero."), nil
 	}
 
-	/* Now this is intersting. we read the first data position directly from the storage back end and not
-	the transaction log layer so it would be possible to think that there was some change that could be in the transaction
-	log somewhere that would alter the data of the first block position and we should read it from the transaction log,
-	not directly from the backing storage. The reason this is okay, is that this doesn't change. the only way to move
-	the first data position is with a resize, and that's going to be all sorts of complicated so we should probably make it
-	an exclusive-activity event. But really... I guess we don't have to, we can just put the root header block in the tlog too.
-	yeah we should probably do that too, and then cache the value here in slookup_i, not storage.
-	really, nobody should go after storage directly.
-	everything goes through the transaction log, just like we did with the write back cache in zos */
-	var ret, first_data_position = this.storage.Get_first_data_position()
+	var ret, first_data_position = this.Get_first_data_position()
 	if ret != nil {
-		return ret
+		return ret, nil
 	}
 
 	if data_block_num < first_data_position {
@@ -255,7 +274,7 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.R
 	}
 
 	var data *[]byte
-	ret, data = this.transaction_log_storage.Read_block(data_block_num)
+	ret, data = this.transaction_log_storage.Read_block(data_block_num) // absolute block position
 	if ret != nil {
 		return ret, nil
 	}
@@ -268,23 +287,54 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.R
 	return nil, data
 }
 
-/// got up to here.
-
-func (this *Slookup_i) node_store(pos uint32, n *stree_v_node.Stree_node) tools.Ret {
-	if pos == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to store node zero.")
+func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib.Slookup_i_entry) tools.Ret {
+	/* Store the lookup entry at this block num position in the lookup table. this will require a read update
+	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
+	we run everything through the transaction logger because this is where it counts. */
+	if block_num == 0 {
+		return tools.Error(this.log, "sanity failure, somebody is trying to store lookup entry zero.")
 	}
 
-	var ret tools.Ret
-	var bn *bytes.Buffer
-	ret, bn = n.Serialize()
+	var ret, total_blocks = this.Get_total_blocks()
 	if ret != nil {
 		return ret
 	}
-	var bnbytes = bn.Bytes()
-	ret = this.storage.Store(pos, &bnbytes)
-	return ret
+	if block_num > total_blocks {
+		return tools.Error(this.log, "sanity failure, somebody is trying to store a lookup entry beyond the end of the lookup table: ",
+			"block_num: ", block_num, " total blocks: ", this.Get_total_blocks()), nil
+	}
+
+	var start_pos, start_block, end_pos, end_block, start_offset uint32
+	var alldata *[]byte
+	ret, start_pos, start_block, end_pos, end_block, start_offset, alldata = this.internal_entry_load(block_num)
+	if ret != nil {
+		return ret
+	}
+	var entrydata *[]byte
+	ret, *entrydata = entry.Serialize()
+	if ret != nil {
+		return ret
+	}
+	var copied = copy((*alldata)[start_offset:start_offset+this.Get_lookup_entry_size()], entrydata)
+	if copied != this.Get_lookup_entry_size() {
+		return tools.Error(this.log, "lookup_entry_store failed to update the block while copying the entry data into it. ",
+			"expected to copy: ", this.Get_lookup_entry_size(), " only copied ", copied)
+	}
+	/* now we have to write the block(s) back */
+
+	var pos uint32 = 0
+	for lp := start_block; lp < (end_block + 1); lp++ {
+		var data = (*alldata)[pos : pos+this.Get_lookup_entry_size()]
+		ret, data = this.transaction_log_storage.Write_block(lp, data)
+		if ret != nil {
+			return ret
+		}
+	}
+
+	return nil
 }
+
+/// got up to here.
 
 func (this *Slookup_i) print_me(pos uint32, last_key string) {
 
@@ -912,7 +962,7 @@ func (this *Slookup_i) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
 	/* the free position is one greater than the last physical block. We know there is data
 	 * because the root node is not zero, so we can safely subtract one to get the last
 	 * physical node. */
-	r, iresp = this.storage.Get_free_position()
+	r, iresp = this.Get_free_position()
 	if r != nil {
 		return r, false, nil
 	}
@@ -1553,7 +1603,7 @@ func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_res
 	this.log.Debug("physically delete one at position: ", pos)
 	var iresp uint32
 	var ret tools.Ret
-	ret, iresp = this.storage.Get_free_position()
+	ret, iresp = this.Get_free_position()
 	if ret != nil {
 		return ret, 0, 0
 	}
@@ -1994,7 +2044,7 @@ func Calculate_block_size(log *tools.Nixomosetools_logger, key_type string, valu
 func (this *Slookup_i) Get_used_blocks() (tools.Ret, uint32) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	return this.storage.Get_free_position()
+	return this.Get_free_position()
 }
 
 func (this *Slookup_i) Get_total_blocks() (tools.Ret, uint32) {
@@ -2017,7 +2067,7 @@ func (this *Slookup_i) Diag_dump(printtree bool) {
 
 	var root_node = this.Get_root_node()
 	fmt.Println("root node: ", root_node)
-	var ret, iresp = this.storage.Get_free_position()
+	var ret, iresp = this.Get_free_position()
 	if ret != nil {
 		fmt.Println(ret)
 		return
