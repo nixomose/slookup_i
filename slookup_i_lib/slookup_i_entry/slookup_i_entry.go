@@ -64,6 +64,24 @@ type Slookup_i_entry struct {
 	 * does not overwrite it so it better be correct. it is block_size * block_group_count, the amount of data one
 	 block_num refers to in bytes. */
 	max_value_length uint32
+
+	/* so now we're left with the problem of when we need to move a data_block we have to find the lookup table
+	entry that points to it. took me a while to figure out but what we can do is have another lookup table that instead
+	of mapping lookup table entries to datablocks, maps data blocks by position to lookup entries. Now... where to put this
+	new list. We can put it after the lookup table, because then we can't resize the lookup table.
+	But we CAN put it IN the lookup table. So that's here.
+	The first problem I ran into was that there are going to be more data blocks than there are lookup entries.
+	In fact there are going to be exactly block_group_count-1 times more data blocks than lookup entries.
+	so instead of having a value that maps a data block position to a lookup table position, we have an array
+	and we spread all the data_block positions over all the lookup table entries, because there AREN'T going
+	to be more data blocks than lookup entries * block_group_count.
+	So lets say we have a block_group_count of 5 and 10 lookup entries, meaning there are 50 data blocks total.
+	entry #0 will have the data_block position lookup for data blocks 0-5, entry #1 will have 5-9, and so on.
+	so to do a reverse lookup, you take the data block position, divide by 5, to get the lookup table entry position
+	then mod 5 to get the position in the data_block_lookup array... */
+	data_block_lookup_list *[]uint32 // can't be nil, this is the array of size block_group_count that holds the position of the
+	//	lookup table entry that refers to this data_block
+
 }
 
 func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32, Block_group_count uint32) *Slookup_i_entry {
