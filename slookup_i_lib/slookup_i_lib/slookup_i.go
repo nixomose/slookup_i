@@ -18,6 +18,10 @@
 	 we never did implement the transaction log in stree_v. oh well.
 	 doesn't matter this will be faster anyway. */
 
+/* since we're not a tree with nodes that have mothers and offspring, the naming convention I'm going
+with for now, is a data_block is a block 4k or whateever of data, the smallest unit we can store.
+a block_group is all the data_blocks that comprise a set of mother+offspring data blocks */
+
 // package name must match directory name
 package slookup_i_lib
 
@@ -222,19 +226,27 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	return
 }
 
-func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib.Slookup_i_entry) {
-	/* read only the lookup entry for a block num. */
+func (this *Slookup_i) check_block_limits(block_num uint32) tools.Ret {
 	if block_num == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to load block zero."), nil
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on block zero.")
 	}
 
 	var ret, total_blocks = this.Get_total_blocks()
 	if ret != nil {
-		return ret, nil
+		return ret
 	}
 	if block_num > total_blocks {
-		return tools.Error(this.log, "sanity failure, somebody is trying to load a lookup entry beyond the end of the lookup table: ",
-			"block_num: ", block_num, " total blocks: ", total_blocks), nil
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a block entry beyond the end of the lookup table: ",
+			"block_num: ", block_num, " total blocks: ", total_blocks)
+	}
+	return nil
+}
+
+func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib.Slookup_i_entry) {
+	/* read only the lookup entry for a block num. */
+	var ret = this.check_block_limits(block_num)
+	if ret != nil {
+		return ret, nil
 	}
 
 	var start_pos, start_block, end_pos, end_block, start_offset uint32
@@ -258,9 +270,10 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.R
 		return tools.Error(this.log, "sanity failure, block_load got nil entry."), nil
 	}
 
+	/* not to be confused with the block_num the user refers to. this is the location of the data */
 	var data_block_num = entry.Get_data_block_num()
 	if data_block_num == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to block_load block zero."), nil
+		return tools.Error(this.log, "sanity failure, data_block_num is zero for block_num: we don't know"), nil
 	}
 
 	var ret, first_data_position = this.Get_first_data_position()
@@ -269,7 +282,7 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.R
 	}
 
 	if data_block_num < first_data_position {
-		return tools.Error(this.log, "sanity failure, somebody is trying to block_load data that is in the lookup table block space: ",
+		return tools.Error(this.log, "sanity failure, somebody is trying to data_block_load data that is in the lookup table block space: ",
 			"data_block_num: ", data_block_num, " first data_position: ", first_data_position), nil
 	}
 
@@ -291,17 +304,10 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	/* Store the lookup entry at this block num position in the lookup table. this will require a read update
 	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
 	we run everything through the transaction logger because this is where it counts. */
-	if block_num == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to store lookup entry zero.")
-	}
 
-	var ret, total_blocks = this.Get_total_blocks()
+	var ret = this.check_block_limits(block_num)
 	if ret != nil {
 		return ret
-	}
-	if block_num > total_blocks {
-		return tools.Error(this.log, "sanity failure, somebody is trying to store a lookup entry beyond the end of the lookup table: ",
-			"block_num: ", block_num, " total blocks: ", this.Get_total_blocks()), nil
 	}
 
 	var start_pos, start_block, end_pos, end_block, start_offset uint32
@@ -334,30 +340,28 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	return nil
 }
 
-/// got up to here.
+// func (this *Slookup_i) print_me(pos uint32, last_key string) {
 
-func (this *Slookup_i) print_me(pos uint32, last_key string) {
+// 	var ret, n = this.Node_load(pos)
+// 	if ret != nil {
+// 		fmt.Println(ret.Get_errmsg())
+// 		return
+// 	}
+// 	var left uint32 = n.Get_left_child()
+// 	if left != 0 {
+// 		this.print_me(left, last_key)
+// 	}
+// 	fmt.Print("[" + tools.Uint32tostring(pos) + "] " + n.Get_key() + " ")
+// 	if n.Get_key() < last_key {
+// 		fmt.Print("\n\nError, keys not in sequence: " + n.Get_key() + " vs " + last_key)
+// 	}
+// 	var right uint32 = n.Get_right_child()
+// 	if right != 0 {
+// 		this.print_me(right, last_key)
+// 	}
+// }
 
-	var ret, n = this.Node_load(pos)
-	if ret != nil {
-		fmt.Println(ret.Get_errmsg())
-		return
-	}
-	var left uint32 = n.Get_left_child()
-	if left != 0 {
-		this.print_me(left, last_key)
-	}
-	fmt.Print("[" + tools.Uint32tostring(pos) + "] " + n.Get_key() + " ")
-	if n.Get_key() < last_key {
-		fmt.Print("\n\nError, keys not in sequence: " + n.Get_key() + " vs " + last_key)
-	}
-	var right uint32 = n.Get_right_child()
-	if right != 0 {
-		this.print_me(right, last_key)
-	}
-}
-
-func (this *Slookup_i) calculate_offspring_nodes_for_value(value_length uint32) (tools.Ret, *uint32) {
+func (this *Slookup_i) calculate_offspring_data_blocks_for_value(value_length uint32) (tools.Ret, *uint32) {
 	/* return how many offspring nodes we need for a value of this length,
 	 * not the total number of nodes, don't include mother node */
 	if value_length == 0 {
@@ -390,10 +394,12 @@ func (this *Slookup_i) get_block_size_in_bytes() uint32 {
 	return this.m_max_value_length
 }
 
-func (this *Slookup_i) Get_node_size_in_bytes() uint32 {
-	/* Get_block_size_in_bytes returns the number of bytes you can store in the mother or one of
-	the offpsring entries in a node. This function returns the total number bytes you can store
-	in the entire stree node entry, which is the number of bytes you can store in the mother or
+// stree had a better name for this, with slookup I need a name equivalent.
+// for now it will be block_size and block_size_with_offspring until I come up with something better,
+// maybe data_block and block_group or something like that.
+func (this *Slookup_i) Get_block_size_with_offspring_in_bytes() uint32 {
+	/* Get_block_size_in_bytes returns the total number bytes you can store
+	in the entire mother+offspring pile of blocks, which is the number of bytes you can store in the mother or
 	offspring node times the additional nodes per block plus 1 */
 
 	var max_value_length = this.get_block_size_in_bytes()
@@ -403,56 +409,51 @@ func (this *Slookup_i) Get_node_size_in_bytes() uint32 {
 	var max_node_size = max_value_length * (this.m_offspring_per_node + 1) // +1 is for mother node
 	return max_node_size
 }
-
-func (this *Slookup_i) update(key string, new_value []byte) tools.Ret {
-	// return error if not found, otherwise update the data  for key with new value
+func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
+	// update the data for this block with new value
 	// return error if there was a read or write problem.
 
 	/* 11/3/2020 update with offspring is not so simple. If we are storing more than what's there, we need
 	 * to add blocks, if we are storing less, we need to delete. We can't leave leftover junk laying around,
-	 * it will waste space, and the system can't account for it. You can't have a node with no data in it.
-	 * it will mess up the tree when you try and delete it. I suppose we could make a sorta dead pool
-	 * in mother nodes, but that just makes everything messier than it already is for no gain. */
+	 * it will waste space, and the system can't account for it. You can't have a data block with no data in it.
+	 * it will mess up the mother->offspring list when you try and delete it. */
 
-	// if key == nil {
-	// 	return Error(s.log, "trying to update with null key")
-	// }
-	// if new_value == nil {
-	// 	return Error(log, "trying to update with null value")
-	// }
+	if new_value == nil {
+		return tools.Error(this.log, "trying to update with null value")
+	}
 
-	var ret, found, resp, resppos = this.search(key, false)
+	var ret = this.check_block_limits(block_num)
 	if ret != nil {
 		return ret
 	}
 
-	if found == false {
-		return tools.Error(this.log, "key ", key, " not found.") // can't update what we can't find.
+	var entry *slookup_i_lib.Slookup_i_entry
+	ret, entry = this.Lookup_entry_load(block_num) // this is the lookup table entry with the offspring list in it.
+	if ret != nil {
+		return ret
 	}
-
-	var n *stree_v_node.Stree_node = resp // this is the mother node
-	var pos uint32 = resppos              // this is the physical block position it is located at, I think.
-
-	return this.perform_new_value_write(n, pos, new_value)
+	return this.perform_new_value_write(block_num, entry, new_value)
 }
 
-func (this *Slookup_i) perform_new_value_write(mother_node *stree_v_node.Stree_node, mother_node_pos uint32, new_value []byte) tools.Ret {
-	/* this handles new inserts and updates. In the case of insert it will either just write the value in the mother
-	 * node and expand into offspring if need be, in the case of updates, it can possibly grow or shrink the
-	 * offspring list. */
+/// got up to here.
+
+func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib.Slookup_i_entry, new_value []byte) tools.Ret {
+	/* this handles group block writes which might involve growing or shrinking the offspring list.
+	   entry is the mother lookup table entry that has the list of offspring. */
 	// get a count of how many offspring there are now in mother node
-	var current_offspring_count uint32 = mother_node.Count_offspring()
+	var current_offspring_count uint32 = entry.Count_offspring()
 
 	// figure out how many nodes we need to store this write.
 	var new_value_length uint32 = uint32(len(new_value))
 
-	var ret, iresp = this.calculate_offspring_nodes_for_value(new_value_length)
+	var ret, iresp = this.calculate_offspring_data_blocks_for_value(new_value_length)
 	if ret != nil {
 		return ret
 	}
 	var offspring_nodes_required uint32 = *iresp
 	/* first handle shrinking if need be */
-	//s.log.Debug("current additional nodes: " + Uint32tostring(current_offspring_count) + " additional nodes required: " + Uint32tostring(offspring_nodes_required))
+	this.log.Debug("current additional nodes: " + tools.Uint32tostring(current_offspring_count) +
+		" additional nodes required: " + tools.Uint32tostring(offspring_nodes_required))
 	if offspring_nodes_required < current_offspring_count {
 		/* all the nodes past what we need get deleted and zeroed in mother's offspring array */
 
