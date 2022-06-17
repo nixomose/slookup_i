@@ -74,11 +74,17 @@ type Slookup_i_entry struct {
 	In fact there are going to be exactly block_group_count-1 times more data blocks than lookup entries.
 	so instead of having a value that maps a data block position to a lookup table position, we have an array
 	and we spread all the data_block positions over all the lookup table entries, because there AREN'T going
-	to be more data blocks than lookup entries * block_group_count.
+	to be more data blocks than lookup entries * block_group_count. So when we get the right lookup entry with the
+	reverse lookup position in it, we mod by the array size to get the position, we pluck the value out of that
+	array position and that is the lookup entry position to find that block in. we load THAT entry and scan the
+	block_group array for the block we're reverse looking up.
+
 	So lets say we have a block_group_count of 5 and 10 lookup entries, meaning there are 50 data blocks total.
-	entry #0 will have the data_block position lookup for data blocks 0-5, entry #1 will have 5-9, and so on.
+	entry #0 will have the data_block position lookup for data blocks 0-5, entry #1 will have 5-10, and so on.
 	so to do a reverse lookup, you take the data block position, divide by 5, to get the lookup table entry position
-	then mod 5 to get the position in the data_block_lookup array... */
+	then mod 5 to get the position in the data_block_lookup array. the value in that position will be the position
+	of the lookup entry that has that data_block listed in it. So we read that lookup entry in and scan the
+	block_group array for the data_block position we're looking for, and it has to be there. */
 	data_block_lookup_list *[]uint32 // can't be nil, this is the array of size block_group_count that holds the position of the
 	//	lookup table entry that refers to this data_block
 
