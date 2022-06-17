@@ -6,86 +6,80 @@ package slookup_i_lib
 import (
 	"bytes"
 	"encoding/binary"
-	"math"
 
 	"github.com/nixomose/nixomosegotools/tools"
 )
 
 type Slookup_i_entry struct {
 	log *tools.Nixomosetools_logger
+
 	/* unlike stree, we don't store keys and values, we store block positions and data at that block position
 	and the data is exactly block_size length and fits nicely aligned on disk. the lookup table, not so much
 	with the nice and aligned, but at least the data is.
-	this is the definition of the lookup table entry, it has the information defining a mother or offspring block
-	and will be unpleasantly misaligned. */
+	this is the definition of the lookup table entry, it has the information defining all the data_blocks making up
+	the block_group that this lookup table entry refers to.	and it will be unpleasantly misaligned.
+	So I realize now the idea of mother and offpsring is not applicable, there are no offspring node lookup table entries.
+	there are only lookup table entries with the list of data_blocks that comprise the block_group. this is way way
+	simpler than stree.	*/
 
-	data_block_num   uint32 // the block number (offset from zero in the backing store) of where this entry's position data is (mother node only if a parent)
-	mother_block_num uint32 // if this block is a mother node, this is zero, if this block is an offspring block it points to this offspring's mother block num
+	// data_block_num   uint32 // the block number (offset from zero in the backing store) of where this entry's position data is (mother node only if a parent)
+	// mother_block_num uint32 // if this block is a mother node, this is zero, if this block is an offspring block it points to this offspring's mother block num
 
-	/* offspring in slookup work basically the same way as they do in stree.
-	 * a block num refers to an amount of data block_size.
-	 * a lookup table entry therefore has the block number for where this data is and information about how to find it's mother
-	 * if it is an offspring block.
-	 * if this block is a mother block, then the offspring list points to the blocks making up the offspring for this mother block.
-	 * if the mother_block_num is zero (denoting this block is an offspring) and the offspring are all zero that just means
-	 * that all the data for this mother block fits in the mother node, and no offspring were allocated. */
+	/* offspring in slookup work sorta the same way as they do in stree.
+	 * a block num refers to an amount of data block_size * num_offspring.
+	 * a lookup table entry therefore has the list of data block numbers for where all the data in the block_group is. */
 
-	/* offspring is an array of size m_offspring_per_node.
-	 * it represents a list of other nodes that store data (in order) in the mother node.
+	/* I think maybe we won't call it offspring anymore, but block_group */
+	/* block_group is an array of size m_offspring_per_node.
+	 * it represents the list of data_block block_nums where the data for this block_group is stored (in order).
 	 * the value in the array will be filled from 0 up to max, and if the value
 	 * is zero then that's the end of the list, if the last element is not zero
 	 * then it is a maxed out block, that means zero does not denote the end of the list
-	 * unless the block being stored doesn't use all the offspring nodes.
-	 * This scheme allows us to store a 64k block that compresses down to 4 in one block
+	 * unless the block being stored doesn't use all the block_group entries.
+	 * This scheme allows us to store a 64k block that compresses down to 4k in one block
 	 * instead of 16, so we can save lots of space.
 	 * this also gives us a lot of variability in the range of size blocks we can efficiently store.
-	 * The first element in the offspring node is NOT the mother node, it is the first offspring node,
-	 * so if the array is all zeroes, then only the mother node holds data.
+	 * so if the array is all zeroes, we store nothing? hmmm... I guess that happens if we trim everything.
+	 * so yes, it is possible to have a lookup table with no block_group entries in it.
 	 *
-	 * this also means that value length is only the value length of THIS node,
-	 * as a mother or offspring, it only refers to this node, so the mother and
-	 * all but the last child will be the block size, and only the last offspring
-	 * node will be less than block_size in length. of course if the stored amount
-	 * is less than one block size, then yea the mother node will also be short.
-	 *
-	 * Like the stree, the caller will supply a node block size (the smallest thing you will store)
-	 * and the number of offspring you want, and we will tell you the max size block you
-	 * can store. So be it. */
-	offspring_nodes uint32 // how many elements in the offspring array, always fully allocated to max for block size
-	/* you always get one node (the mother) this is how many additional nodes you want in this block */
-	offspring *[]uint32 // nil (for offspring nodes) or array of size offspring_nodes
+	 * this also means that value length is value length of the whole block_group so we know how much data is in the last
+	 * possibly unfilled allocated block_group block.
+	 * only the last block_group entry will be less than block_size in length. it is possible for the block_group length to be zero.
+	 */
+	block_group_count uint32    // how many elements in the block_group array, always fully allocated to max for block_group size
+	block_group_list  *[]uint32 // can't be nil, this is the array of size block_group_count
 
-	// when this is serialized, we store it's length so each node knows exactly how much data it actually stored in its data block
-	value []byte /* the actual value data is not stored in the lookup entry (seralized/deserialize),
+	/* when this is serialized, we store its length so each node knows exactly how much data it actually stored in its data block,
+	as in, all data_blocks are full except the last one and the length of that one can be determined by length mod data_block_size.
+	It is therefore possible to have conflicting information, like an array of length 5 with only one non zero value in it, but
+	a value length of more than 2 blocks worth. We will be careful. I mean you can also have a block list in stree which is
+	spotted with zeroes, which is also illegal, so we just take care not to do that. */
+
+	value []byte /* the actual value data. is not stored in the lookup entry (seralized/deserialize),
 	but we keep it here so we have it all in one place. */
 
 	/* This is only kept around for ease of validation, this value is not serialized to disk.
-	 * serializing a node means getting the actual size of the value and writing that so we can
+	 * serializing a node means getting the actual size of the block_group_list array and writing that so we can
 	 * deserialize correctly. which means this value gets set once at creation and deserializing
-	 * does not overwrite it so it better be correct. it is block_size, the amount of data one
+	 * does not overwrite it so it better be correct. it is block_size * block_group_count, the amount of data one
 	 block_num refers to in bytes. */
 	max_value_length uint32
 }
 
-func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32,
-	Additional_offspring_nodes uint32) *Slookup_i_entry {
+func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32, Block_group_count uint32) *Slookup_i_entry {
 
 	var n Slookup_i_entry
 	n.log = l
 	n.value = nil
-	n.data_block_num = 0
 	n.max_value_length = Max_value_length
 	// if the array is null then you are an offspring node, otherwise you are a mother node.
 	/* we don't serialize this or store it, but we need it to know how big to make the offspring array
 	 * when we deserialize a node from disk, the array size has to be the max allowable for this block size.
 	 * This is the offspring array size, which does not include the space we can also use in the mother node. */
-	n.offspring_nodes = Additional_offspring_nodes
-	if Additional_offspring_nodes > 0 {
-		var v []uint32 = make([]uint32, Additional_offspring_nodes) // array is fully allocated but set all to zero
-		n.offspring = &v
-	} else {
-		n.offspring = nil
-	}
+	// this really can't be zero.
+	n.block_group_count = Block_group_count
+	var v []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
+	n.block_group_list = &v
 	return &n
 }
 
@@ -106,107 +100,73 @@ func (this *Slookup_i_entry) Set_value(new_value []byte) tools.Ret {
 	return nil
 }
 
-func (this *Slookup_i_entry) Get_data_block_num() uint32 {
+func (this *Slookup_i_entry) Get_data_block_pos(block_group_pos uint32) uint32 {
 	/* return the block num this entry refers to where it's data is. */
-	return this.data_block_num
-}
-
-func (this *Slookup_i_entry) Get_mother_block_num() uint32 {
-	/* unlike stree, there is no parent, there is only the mother block for which this offspring is a part of (if it is
-	an offspring node) */
-	return this.mother_block_num
+	return (*this.block_group_list)[block_group_pos]
 }
 
 func (this *Slookup_i_entry) Get_value_length() uint32 {
 	return this.max_value_length
 }
 
-func (this *Slookup_i_entry) Set_mother_block_num(spos uint32) {
-	this.mother_block_num = spos
-}
-
-func (this *Slookup_i_entry) Set_offspring_pos(offspring_pos uint32, node_pos uint32) tools.Ret {
-	if offspring_pos > this.offspring_nodes {
-		return tools.Error(this.log, "trying to set offspring pos ", offspring_pos,
-			" which is greater than the number of offpsring nodes ", this.offspring_nodes)
+func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_block uint32) tools.Ret {
+	if block_group_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to set block_group  pos ", block_group_pos,
+			" which is greater than the number of blocks in the block_group ", this.block_group_count)
 	}
-	if offspring_pos > uint32(len(*this.offspring)) {
-		return tools.Error(this.log, "trying to set offspring pos ", offspring_pos, " which is greater than the offpsring array length ", len(*this.offspring))
+	if block_group_pos > uint32(len(*this.block_group_list)) {
+		return tools.Error(this.log, "trying to set block_group pos ", block_group_pos,
+			" which is greater than the block_group list array length ", len(*this.block_group_list))
 	}
-	(*this.offspring)[offspring_pos] = node_pos
+	(*this.block_group_list)[block_group_pos] = data_block
 	return nil
 }
 
-func (this *Slookup_i_entry) Is_offspring() bool {
-	/* 6/22/2021 the node's offspring variable is non null if we're the mother node because the mother has a list
-	 * of offspring, and the offspring do not. However, we missed a case where if the whole stree is not set up
-	 * to use offspring, then offspring is null in the mother node as well. */
-	if this.offspring_nodes == 0 {
-		return false
+func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.Ret, *uint32) {
+	if block_group_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to get block_group_pos ", block_group_pos,
+			" which is greater than the block_group count ", this.block_group_count), nil
 	}
-	if this.offspring == nil {
-		return true
+	if block_group_pos > uint32(len(*this.block_group_list)) {
+		return tools.Error(this.log, "trying to get block_group pos ", block_group_pos,
+			" which is greater than the block_group list array length ", len(*this.block_group_list)), nil
 	}
-	return false
-}
-
-func (this *Slookup_i_entry) Get_offspring_pos(offspring_pos uint32) (tools.Ret, *uint32) {
-	if offspring_pos > this.offspring_nodes {
-		return tools.Error(this.log, "trying to get offspring pos ", offspring_pos,
-			" which is greater than the number of offpsring nodes ", this.offspring_nodes), nil
-	}
-	if offspring_pos > uint32(len(*this.offspring)) {
-		return tools.Error(this.log, "trying to get offspring pos ", offspring_pos,
-			" which is greater than the offpsring array length ", len(*this.offspring)), nil
-	}
-	return nil, &(*this.offspring)[offspring_pos]
+	return nil, &(*this.block_group_list)[block_group_pos]
 }
 
 func (this *Slookup_i_entry) Serialized_size() uint32 {
 	/* return the size of this node in bytes when it is serialized in the serialize function below
 	* ie, add up all the sizes of the fields we're going to serialize.
 	stree stores the key and value in the node, slookup does not, so the lookup table entry will always be
-	the same size, (except for offspring array) and is relatively small as there's no data in it at all. */
+	the same size, the block_group list array is always the same size, and is relatively small. */
 
-	var retval uint32 = 4 + // data_block_num
-		4 + // mother_block_num
-		4 + // value length (so we can restore exactly what was passed to us even if it is less than the block size
-		4 // space needed to store the number of items in the offspring array (or 0 or max_int32)
+	var retval uint32 = 4 // value length (so we can restore exactly what was passed to us even if it is less than the block size
 
-	/* this is interesting, this gives you the serialized size of THIS node, but if you want to know
-	how to size the biggest node you're going to ever need (so you know know the byte size of a lookup entry)
-	you must call this with a mother node otherwise you'll get the wrong size. */
-	// space needed for offspring array, if any, for this node. this is so we can size the allocation to serialize into.
-	if this.offspring != nil {
-		retval += uint32(4 * len(*this.offspring))
-	}
+	// space needed for block_group array. which is a constant, given the block_group_count.
+	retval += uint32(4 * this.block_group_count)
 	return retval
 }
 
 func (this *Slookup_i_entry) Serialize() (tools.Ret, *bytes.Buffer) {
 	/* serialize this node into a byte array, which defines the length of a horribly misaligned lookup table entry */
+	/* actually since everything is uint32s now, it's possible to make a block_group_count such that
+	a pile of entries will fit neatly in a block */
 	var bval []byte = this.value
 	var ssize uint32 = this.Serialized_size() // see below, we specifically store the length stored not the padded out length
 	var bb *bytes.Buffer = bytes.NewBuffer(make([]byte, 0, ssize))
-	binary.Write(bb, binary.BigEndian, this.data_block_num)
-	binary.Write(bb, binary.BigEndian, this.mother_block_num)
 
 	/* as of 11/22/2020 we're going to try making the value only store the actual size of the value
-	 * data so all value lengths will be the amount stored, the idea being
-	 * a) we can reproduce the size the original calling writer sent to us,
-	 * b) this only applies to the last node in the block, all others should be full. */
+	* data so all value lengths will be the amount stored, the idea being
+	* a) we can reproduce the size the original calling writer sent to us,
+	* b) this only applies to the last filled in the block group, all others should be full.
+	but the length itself is the full block_group data length, not just the length of the data
+	in the last data_block. */
 	binary.Write(bb, binary.BigEndian, uint32(len(bval))) // if you just pass len(bval) it doesn't write anything
 
-	/* we have to distinguish between a zero length array and no offspring array at all (a mother node
-	 * versus an offspring node)*/
-	if this.offspring != nil {
-		binary.Write(bb, binary.BigEndian, uint32(len(*this.offspring)))
+	// offspring can never be null, we always allocate the entire block_group_list array
 
-		for rp := 0; rp < len(*this.offspring); rp++ {
-			binary.Write(bb, binary.BigEndian, uint32((*this.offspring)[rp]))
-		}
-	} else {
-		binary.Write(bb, binary.BigEndian, uint32(math.MaxUint32)) // flag for offspring node, again you must cast or write doesn't do anything.
+	for rp := 0; rp < int(this.block_group_count); rp++ {
+		binary.Write(bb, binary.BigEndian, uint32((*this.block_group_list)[rp]))
 	}
 	if uint32(len(bval)) > this.max_value_length {
 		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_value_length, " it is ", len(bval)), nil
@@ -224,42 +184,29 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 	var bpos int = 0
 	var bp []byte = *bs
 
-	this.data_block_num = binary.BigEndian.Uint32(bp[bpos:])
-	bpos += 4
-	this.mother_block_num = binary.BigEndian.Uint32(bp[bpos:])
-	bpos += 4
 	var data_value_length uint32 = binary.BigEndian.Uint32(bp[bpos:])
 	bpos += 4
-	var offspring_length uint32 = binary.BigEndian.Uint32(bp[bpos:]) // this is how many we serialized, not the max number of offspring we can have.
-	bpos += 4
 
-	if offspring_length == math.MaxUint32 { // flag for offspring node.
-		this.offspring = nil
-	} else {
-		var v []uint32 = make([]uint32, this.offspring_nodes) // array is fully allocated but set all to zero
-		this.offspring = &v
-		for rp := 0; uint32(rp) < offspring_length; rp++ {
-			(*this.offspring)[rp] = binary.BigEndian.Uint32(bp[bpos:])
-			bpos += 4
-		}
+	var v []uint32 = make([]uint32, this.block_group_count) // array is fully allocated but set all to zero
+	this.block_group_list = &v
+	for rp := 0; uint32(rp) < this.block_group_count; rp++ {
+		(*this.block_group_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
+		bpos += 4
 	}
 	/* we serialized the actual length of the data field (not the data), we allocate the value memory here and
 	that's how we know how much data to read later, the size of the array stores the value length. */
 
-	this.value = bp[bpos : bpos+int(data_value_length)]
+	this.value = make([]byte, int(data_value_length))
 	return nil
 }
 
 func (this *Slookup_i_entry) Count_offspring() uint32 {
-	if this.offspring == nil {
-		return 0
-	}
 
 	var rp int // make this faster xxxz
-	for rp = 0; rp < len(*this.offspring); rp++ {
-		if (*this.offspring)[rp] == 0 {
+	for rp = 0; rp < len(*this.block_group_list); rp++ {
+		if (*this.block_group_list)[rp] == 0 {
 			return uint32(rp)
 		}
 	}
-	return uint32(len(*this.offspring)) // if they're all full, then there are as many as there are array elements
+	return uint32(len(*this.block_group_list)) // if they're all full, then there are as many as there are array elements
 }
