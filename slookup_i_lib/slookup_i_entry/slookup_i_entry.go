@@ -85,9 +85,10 @@ type Slookup_i_entry struct {
 	then mod 5 to get the position in the data_block_lookup array. the value in that position will be the position
 	of the lookup entry that has that data_block listed in it. So we read that lookup entry in and scan the
 	block_group array for the data_block position we're looking for, and it has to be there. */
-	data_block_lookup_list *[]uint32 // can't be nil, this is the array of size block_group_count that holds the position of the
-	//	lookup table entry that refers to this data_block
 
+	/* can't be nil, this is the array of size block_group_count that holds the position of the
+	lookup table entry that refers to this data_block. */
+	data_block_lookup_list *[]uint32
 }
 
 func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32, Block_group_count uint32) *Slookup_i_entry {
@@ -104,6 +105,8 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32, B
 	n.block_group_count = Block_group_count
 	var v []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
 	n.block_group_list = &v
+	var r []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
+	n.data_block_lookup_list = &r
 	return &n
 }
 
@@ -133,7 +136,22 @@ func (this *Slookup_i_entry) Get_value_length() uint32 {
 	return this.max_value_length
 }
 
+/* get and set an item in the block_group array for this lookup entry */
+
+func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.Ret, uint32) {
+	if block_group_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to get block_group_pos ", block_group_pos,
+			" which is greater than the block_group count ", this.block_group_count), 0
+	}
+	if block_group_pos > uint32(len(*this.block_group_list)) {
+		return tools.Error(this.log, "trying to get block_group pos ", block_group_pos,
+			" which is greater than the block_group list array length ", len(*this.block_group_list)), 0
+	}
+	return nil, (*this.block_group_list)[block_group_pos]
+}
+
 func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_block uint32) tools.Ret {
+
 	if block_group_pos > this.block_group_count {
 		return tools.Error(this.log, "trying to set block_group  pos ", block_group_pos,
 			" which is greater than the number of blocks in the block_group ", this.block_group_count)
@@ -146,16 +164,32 @@ func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_bl
 	return nil
 }
 
-func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.Ret, *uint32) {
-	if block_group_pos > this.block_group_count {
-		return tools.Error(this.log, "trying to get block_group_pos ", block_group_pos,
-			" which is greater than the block_group count ", this.block_group_count), nil
+/* get and set an item in the data_block_lookup array for this lookup entry */
+
+func (this *Slookup_i_entry) Get_data_block_lookup_pos(data_block_lookup_pos uint32) (tools.Ret, uint32) {
+	if data_block_lookup_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to get data_block_lookup_pos ", data_block_lookup_pos,
+			" which is greater than the block_group count ", this.block_group_count), 0
 	}
-	if block_group_pos > uint32(len(*this.block_group_list)) {
-		return tools.Error(this.log, "trying to get block_group pos ", block_group_pos,
-			" which is greater than the block_group list array length ", len(*this.block_group_list)), nil
+	if data_block_lookup_pos > uint32(len(*this.data_block_lookup_list)) {
+		return tools.Error(this.log, "trying to get block_group pos ", data_block_lookup_pos,
+			" which is greater than the data_block_lookup list array length ", len(*this.data_block_lookup_list)), 0
 	}
-	return nil, &(*this.block_group_list)[block_group_pos]
+	return nil, (*this.data_block_lookup_list)[data_block_lookup_pos]
+}
+
+func (this *Slookup_i_entry) Set_data_block_lookup_pos(data_block_lookup_pos uint32, entry_pos uint32) tools.Ret {
+	/* this is where you'd set the entry_position in the reverse lookup array */
+	if data_block_lookup_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to set block_group  pos ", data_block_lookup_pos,
+			" which is greater than the number of blocks in the block_group ", this.block_group_count)
+	}
+	if data_block_lookup_pos > uint32(len(*this.block_group_list)) {
+		return tools.Error(this.log, "trying to set block_group pos ", data_block_lookup_pos,
+			" which is greater than the block_group list array length ", len(*this.block_group_list))
+	}
+	(*this.data_block_lookup_list)[data_block_lookup_pos] = entry_pos
+	return nil
 }
 
 func (this *Slookup_i_entry) Serialized_size() uint32 {
@@ -167,6 +201,8 @@ func (this *Slookup_i_entry) Serialized_size() uint32 {
 	var retval uint32 = 4 // value length (so we can restore exactly what was passed to us even if it is less than the block size
 
 	// space needed for block_group array. which is a constant, given the block_group_count.
+	retval += uint32(4 * this.block_group_count)
+	// space needed for revese lookup array, data_block_lookup_list
 	retval += uint32(4 * this.block_group_count)
 	return retval
 }
@@ -191,6 +227,11 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *bytes.Buffer) {
 
 	for rp := 0; rp < int(this.block_group_count); rp++ {
 		binary.Write(bb, binary.BigEndian, uint32((*this.block_group_list)[rp]))
+	}
+
+	// and then the reverse lookup array
+	for rp := 0; rp < int(this.block_group_count); rp++ {
+		binary.Write(bb, binary.BigEndian, uint32((*this.data_block_lookup_list)[rp]))
 	}
 	if uint32(len(bval)) > this.max_value_length {
 		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_value_length, " it is ", len(bval)), nil
@@ -217,6 +258,14 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 		(*this.block_group_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
 		bpos += 4
 	}
+
+	var r []uint32 = make([]uint32, this.block_group_count) // array is fully allocated but set all to zero
+	this.data_block_lookup_list = &r
+	for rp := 0; uint32(rp) < this.block_group_count; rp++ {
+		(*this.data_block_lookup_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
+		bpos += 4
+	}
+
 	/* we serialized the actual length of the data field (not the data), we allocate the value memory here and
 	that's how we know how much data to read later, the size of the array stores the value length. */
 
@@ -233,4 +282,24 @@ func (this *Slookup_i_entry) Count_offspring() uint32 {
 		}
 	}
 	return uint32(len(*this.block_group_list)) // if they're all full, then there are as many as there are array elements
+}
+
+func (this *Slookup_i_entry) Find_data_block_in_data_block_lookup_list(data_block uint32) (tools.Ret, uint32) {
+	/* there's two steps to doing a reverse lookup:
+	1) given the data_block position, divide by block_group_count to get
+	the lookup table entry position, read that lookup table entry, get the data block position mod block_group_count to get
+	the position in the reverse lookup array, then read that value, that's the lookup entry position that should have our
+	data block pos.
+	2) read the lookup table entry for that value, and call this function to get the position of that data block
+	in the block_group list
+	If you're doing everything right, it MUST be there, so it's an error if it's not.
+	all the heavy lifting of #1 will be in slookup_i. we're just the entry class. */
+
+	for pos, n := range *this.block_group_list {
+		if n == data_block {
+			return nil, uint32(pos)
+		}
+	}
+	// we really have to start storing the entry position number in the entry. not on disk, just in the structure.
+	return tools.Error(this.log, "sanity failure: couldn't find data_block: ", data_block, " in block_group_list, for entry: I don't know."), 0
 }
