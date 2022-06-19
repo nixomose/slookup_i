@@ -15,7 +15,19 @@ type Slookup_i_backing_store_interface interface {
 		 too bad. it would have been cool if the slookup matched stree enough
 		 that we could reuse the interface and then it would have just worked. */
 	/* the backing aligned file store and memory store I think will work fine
-	with the tlog. so there is that at least. */
+	   with the tlog. so there is that at least.
+		 The direct access to the backing store should not even allow read or write
+		 it should always go through the tlog. direct access to the tlog is for
+		 initializing the header blocks and tlog and data, and for other
+		 get-size kinda things. All actual reads and writes of data including headers
+		 must go through tlog. */
+
+	/* One of the sucky things we must do is write zeroes over the entry lookup table
+	for init. For a file it doesn't matter, but if we are backed by a block device, and
+	there's junk there, we may misinterpret junk as some kind of valid data and
+	screw everything up. so at least if we're a block device, we must write zeroes over
+	everything. Unless of course calling fallocate hole punch on a block device
+	actually calls discard. bwahahahah I don't think so. */
 
 	Init() tools.Ret
 

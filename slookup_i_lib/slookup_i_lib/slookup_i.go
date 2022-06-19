@@ -20,7 +20,9 @@
 
 /* since we're not a tree with nodes that have mothers and offspring, the naming convention I'm going
 with for now, is a data_block is a block 4k or whateever of data, the smallest unit we can store.
-a block_group is all the data_blocks that comprise a set of mother+offspring data blocks */
+a block_group is all the data_blocks that comprise a set of mother+offspring data blocks.
+There is also a reverse lookup table buried in the main lookup table, so that it is possible to find
+the lookup table entry that contains a given data block position. */
 
 // package name must match directory name
 package slookup_i_lib
@@ -42,19 +44,24 @@ type Slookup_i struct {
 	/* this is the guts of the lookup table. it'll be a bit more refined since we worked out all the details in
 	   stree and this is simpler than the stree.
 		 so you have a header for the file in block zero, blocks 1-n are the lookup table entries (slookup_i_entry).
-		 the number of blocks taken up is size of block device / size of slookup_i_entry +1, and that block is
-		 where the data blocks start, aligned and sized exactly to the data unlike stree.
+		 the number of blocks taken up is size of block device / size of slookup_i_entry +1 (unless it aligns perfectly).
+		 Then we leave space for the transaction log. It can be stored in the file, or externally, but if it's in the file
+		 it's after the lookup table before the data starts. The reason is that if we need to resize the backing store,
+		 we can flush the tlog, then move data blocks from the beginning to end to grow, or from the end to beginning to shrink,
+		 make a new tlog at the end of the new ending location of the lookup table, and move the datablocks to fill in the gaps.
+		 we'll probably never get around to implementing that, but it's at least workable this way.
+		 after the transaction log is where the data blocks start, aligned and sized exactly to the data unlike stree.
 		 the other cute thing we can do is if we need to expand or shrink the block device, we can move the n+1 block
 		 to the end and shuffle the mother and offspring nodes as appropriate, the opposite of deleting.
 		 so we need a generic block mover than can move a block from anywhere to anywhere else.
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	storage                 slookup_i_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
-	transaction_log_storage Transaction_log_interface                              // the backing store mechanism for writing stree_v data
-	transaction_log_storage slookup_i_interfaces.Stree_v_backing_store_interface   // the backing store mechanism for writing stree_v data
-	m_entry_length          uint32                                                 // this is the serilized size of the entry given the number of offspring
-	m_max_value_length      uint32                                                 // this is the maximum size of the value in a storable block, multiple blocks (of mothers and offspring) make up a storable unit
+	storage                 slookup_i_lib.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
+	transaction_log_storage slookup_i_lib.Transaction_log_interface         // the backing store mechanism for writing stree_v data
+
+	m_entry_length     uint32 // this is the serilized size of the entry given the number of offspring
+	m_max_value_length uint32 // this is the maximum size of the value in a storable block, multiple blocks (of mothers and offspring) make up a storable unit
 
 	/* How many elements in the offspring array for each node */
 	m_offspring_per_node uint32

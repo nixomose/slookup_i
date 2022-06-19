@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1
 // Copyright (C) 2021-2022 stu mark
 
+// Package slookup_i_lib has a comment
 package slookup_i_lib
 
 import (
@@ -89,9 +90,13 @@ type Slookup_i_entry struct {
 	/* can't be nil, this is the array of size block_group_count that holds the position of the
 	lookup table entry that refers to this data_block. */
 	data_block_lookup_list *[]uint32
+
+	/* this is the position in the lookup table that this entry instance refers to. it is not stored on disk,
+	and is really only used for logging, but basically we have no idea who we are, except for this. */
+	entry_pos uint32
 }
 
-func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32, Block_group_count uint32) *Slookup_i_entry {
+func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_value_length uint32, Block_group_count uint32) *Slookup_i_entry {
 
 	var n Slookup_i_entry
 	n.log = l
@@ -107,6 +112,8 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Max_value_length uint32, B
 	n.block_group_list = &v
 	var r []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
 	n.data_block_lookup_list = &r
+
+	n.entry_pos = Entry_pos
 	return &n
 }
 
@@ -295,11 +302,13 @@ func (this *Slookup_i_entry) Find_data_block_in_data_block_lookup_list(data_bloc
 	If you're doing everything right, it MUST be there, so it's an error if it's not.
 	all the heavy lifting of #1 will be in slookup_i. we're just the entry class. */
 
+	// make this faster too, although this won't actually happen much
 	for pos, n := range *this.block_group_list {
 		if n == data_block {
 			return nil, uint32(pos)
 		}
 	}
 	// we really have to start storing the entry position number in the entry. not on disk, just in the structure.
-	return tools.Error(this.log, "sanity failure: couldn't find data_block: ", data_block, " in block_group_list, for entry: I don't know."), 0
+	return tools.Error(this.log, "sanity failure: couldn't find data_block: ", data_block, " in block_group_list, for entry: ",
+		this.entry_pos), 0
 }
