@@ -14,7 +14,7 @@ type Transaction_log_interface interface {
 
 	Init() tools.Ret
 
-	Startup() tools.Ret // assumes replay
+	Startup(force bool) tools.Ret // assumes replay
 
 	Shutdown() tools.Ret // should not flush the last transaction if still in flight.
 

@@ -14,7 +14,7 @@ go 1.18
 
 require (
 	github.com/nixomose/nixomosegotools v0.0.0-20220601021307-4fef638de118
-	github.com/nixomose/stree_v v0.0.0-20220602005859-11e0af24a0ca
+	github.com/nixomose/stree_v v0.0.0-20220609015355-6910180c06ab
 )
 
 require (

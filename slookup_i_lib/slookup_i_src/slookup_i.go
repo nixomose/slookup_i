@@ -25,7 +25,7 @@ There is also a reverse lookup table buried in the main lookup table, so that it
 the lookup table entry that contains a given data block position. */
 
 // package name must match directory name
-package slookup_i_lib
+package slookup_i_src
 
 import (
 	"bytes"
@@ -35,7 +35,8 @@ import (
 	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
-	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
+	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
+	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
@@ -57,14 +58,14 @@ type Slookup_i struct {
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	storage                 slookup_i_lib.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
-	transaction_log_storage slookup_i_lib.Transaction_log_interface         // the backing store mechanism for writing stree_v data
+	storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
+	transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
 
 	m_entry_length     uint32 // this is the serilized size of the entry given the number of offspring
 	m_max_value_length uint32 // this is the maximum size of the value in a storable block, multiple blocks (of mothers and offspring) make up a storable unit
 
 	/* How many elements in the offspring array for each node */
-	m_offspring_per_node uint32
+	m_block_group_count uint32 // a.k.a. m_offspring_per_node
 
 	/* 12/26/2020 only one of anything in the interface can happen at once, so here's the lock for it. */
 	interface_lock sync.Mutex
@@ -80,9 +81,9 @@ type Slookup_i struct {
 // var _ stree_v_lib.Stree_v_backing_store_interface = &Stree_v{}
 // var _ stree_v_lib.Stree_v_backing_store_interface = (*Stree_v)(nil)
 
-func New_Slookup_i(l *tools.Nixomosetools_logger, b Slookup_i_backing_store_interface,
-	t Transaction_log, entry_size uint32,
-	max_value_length uint32, additional_offspring_nodes uint32) *Slookup_i {
+func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slookup_i_backing_store_interface,
+	t slookup_i_lib_interfaces.Transaction_log_interface, entry_size uint32,
+	max_value_length uint32, block_group_count uint32) *Slookup_i {
 
 	var s Slookup_i
 	s.log = l
@@ -90,9 +91,9 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b Slookup_i_backing_store_inte
 	s.storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
 	s.transaction_log_storage = t
-	s.m_max_value_length = max_value_length // the amount of data that will fit in one node, not one block
-	s.m_offspring_per_node = additional_offspring_nodes
-	/* (offspring_per_node + 1) * value_length is the max data size we can store per write insert request.
+	s.m_max_value_length = max_value_length // the amount of data that will fit in one block group, not one block
+	s.m_block_group_count = block_group_count
+	/* block_group_count * value_length (not max_value_length) is the max data size we can store per write insert request.
 	 * This is what the client will see as the "block size" which is the max data we can store in a block. */
 	// s.interface_lock   doesn't need to be initted
 	s.m_verify_slookup_i_entry_size = entry_size // so we can verify later
@@ -120,14 +121,14 @@ func (this *Slookup_i) Is_initialized() (tools.Ret, bool) {
 
 func (this *Slookup_i) Init() tools.Ret {
 	/* init the backing store, as in if it's a filestore, write the header info
-	so it becomes initted */
+	so it becomes initted, if it's a block device, zero out the lookup table. */
 	return this.storage.Init()
 }
 
 func (this *Slookup_i) Startup(force bool) tools.Ret {
 	/* Verify that the lookup entry size and the data block size match what's defined in the backing store */
-	var measure_entry *slookup_i_lib.Slookup_i_entry = slookup_i_lib.New_slookup_entry(this.log, this.m_max_value_length,
-		this.m_offspring_per_node)
+	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0, this.m_max_value_length,
+		this.m_block_group_count)
 
 	var max_block_size uint32 = measure_entry.Serialized_size()
 
@@ -142,7 +143,13 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 			"supplied block size of ", this.m_verify_slookup_i_value_size)
 	}
 
-	return this.storage.Startup(force)
+	// need to start up the transaction log here too?
+	var ret = this.storage.Startup(force)
+	if ret != nil {
+		return ret
+	}
+	ret = this.transaction_log_storage.Startup(force)
+	return ret
 }
 
 func (this *Slookup_i) Shutdown() tools.Ret {
@@ -249,7 +256,7 @@ func (this *Slookup_i) check_block_limits(block_num uint32) tools.Ret {
 	return nil
 }
 
-func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib.Slookup_i_entry) {
+func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
 	/* read only the lookup entry for a block num. */
 	var ret = this.check_block_limits(block_num)
 	if ret != nil {
@@ -260,12 +267,12 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	var alldata *[]byte
 	ret, start_pos, start_block, end_pos, end_block, start_offset, alldata = this.internal_entry_load(block_num)
 	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size()]
-	var entry = slookup_i_lib.New_slookup_entry(this.log, this.m_max_value_length, this.m_offspring_per_node)
+	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, this.m_max_value_length, this.m_offspring_per_node)
 	ret = entry.Deserialize(this.log, &entrydata)
 	return ret, entry
 }
 
-func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.Ret, *[]byte) {
+func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry) (tools.Ret, *[]byte) {
 	/* given a lookup table entry, load the data the entry refers to. this just raw reads the
 	data block from the correct location.
 	All data block locations are relative to the beginning of the block device, not the
@@ -307,7 +314,7 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib.Slookup_i_entry) (tools.R
 	return nil, data
 }
 
-func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib.Slookup_i_entry) tools.Ret {
+func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
 	/* Store the lookup entry at this block num position in the lookup table. this will require a read update
 	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
 	we run everything through the transaction logger because this is where it counts. */
@@ -434,7 +441,7 @@ func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 		return ret
 	}
 
-	var entry *slookup_i_lib.Slookup_i_entry
+	var entry *slookup_i_lib_entry.Slookup_i_entry
 	ret, entry = this.Lookup_entry_load(block_num) // this is the lookup table entry with the offspring list in it.
 	if ret != nil {
 		return ret
@@ -444,7 +451,7 @@ func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 
 /// got up to here.
 
-func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib.Slookup_i_entry, new_value []byte) tools.Ret {
+func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value []byte) tools.Ret {
 	/* this handles group block writes which might involve growing or shrinking the offspring list.
 	   entry is the mother lookup table entry that has the list of offspring. */
 	// get a count of how many offspring there are now in mother node

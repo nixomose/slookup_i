@@ -96,7 +96,8 @@ type Slookup_i_entry struct {
 	entry_pos uint32
 }
 
-func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_value_length uint32, Block_group_count uint32) *Slookup_i_entry {
+func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_value_length uint32,
+	Block_group_count uint32) *Slookup_i_entry {
 
 	var n Slookup_i_entry
 	n.log = l
@@ -115,6 +116,28 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_valu
 
 	n.entry_pos = Entry_pos
 	return &n
+}
+
+func (this *Slookup_i_entry) Dump() string {
+	var str = "entry pos: " + tools.Uint32tostring(this.entry_pos) + ", block_group_count: " +
+		tools.Uint32tostring(this.block_group_count) +
+		", block_group_list: ["
+	for pos, n := range *this.block_group_list {
+		if pos > 0 {
+			str += " "
+		}
+		str += tools.Uint32tostring(n)
+	}
+	str += "], max_value_length: " + tools.Uint32tostring(this.max_value_length) +
+		", data_block_lookup_list: ["
+
+	for pos, n := range *this.data_block_lookup_list {
+		if pos > 0 {
+			str += " "
+		}
+		str += tools.Uint32tostring(n)
+	}
+	return str
 }
 
 func (this *Slookup_i_entry) Get_value() []byte {
