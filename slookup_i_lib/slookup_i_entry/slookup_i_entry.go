@@ -114,6 +114,7 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_valu
 	var r []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
 	n.data_block_lookup_list = &r
 
+	// not deserialized from disk, just stored in the struct so an entry can identify itself.
 	n.entry_pos = Entry_pos
 	return &n
 }
