@@ -1,6 +1,9 @@
 package tlog
 
-import "github.com/nixomose/nixomosegotools/tools"
+import (
+	"github.com/nixomose/nixomosegotools/tools"
+	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
+)
 
 /* this is the implementation of the transaction log.
 
@@ -45,6 +48,10 @@ everything comes full circle. */
 
 type Transaction_log struct {
 }
+
+// verify that tlog implements tlog_interface
+var _ slookup_i_lib_interfaces.Transaction_log_interface = &Transaction_log{}
+var _ slookup_i_lib_interfaces.Transaction_log_interface = (*Transaction_log)(nil)
 
 func (this *Transaction_log) Init() tools.Ret {
 

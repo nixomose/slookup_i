@@ -25,4 +25,8 @@ type Transaction_log_interface interface {
 	Write_block(block_num uint32, n *[]byte) tools.Ret
 
 	End_transaction() tools.Ret
+
+	Get_first_transaction_log_position() (tools.Ret, uint32)
+
+	Get_first_data_block_position() (tools.Ret, uint32)
 }

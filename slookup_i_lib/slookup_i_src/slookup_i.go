@@ -175,7 +175,12 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 	}
 	// this is really a slookup piece of data but it's actually persistently stored in storage so that's where we get it from.
 	var first_data_position uint32
-	ret, first_data_position = this.Get_first_data_position()
+	ret, first_data_position = this.Get_first_data_block_position()
+	if ret != nil {
+		fmt.Println(ret.Get_errmsg())
+		return
+	}
+
 	// the number of allocated blocks
 	var allocated_blocks uint32 = free_position - first_data_position
 	var lp uint32
@@ -2076,17 +2081,6 @@ func (this *Slookup_i) Delete(key string, not_found_is_error bool) tools.Ret {
 	//        root_node = iresp.get(0);
 	//        treeprinter_iii.printNode(this, root_node);
 	return nil
-}
-
-func (this *Slookup_i) Get_free_position() uint32 { // package scope
-	// only used for treeprinter
-
-	var ret, iresp = this.storage.Get_free_position()
-	if ret != nil {
-		fmt.Println(ret)
-		return 0
-	}
-	return iresp
 }
 
 /* in java there is a package scope, but I don't think go has that, so it's public. */
