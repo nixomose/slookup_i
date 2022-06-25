@@ -247,7 +247,7 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
 
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
-	so we might have to concatenate. */
+	so we might have to concatenate. something we'll have to fix with goroutines someday. */
 	start_pos = block_num * this.Get_lookup_entry_size()
 	start_block = (start_pos / this.get_block_size_in_bytes()) + 1 // lookup table starts at block 1
 
@@ -374,10 +374,8 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry, li
 	return nil, data
 }
 
-/// got up to here.
-
 func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
-	/* Store the lookup entry at this block num position in the lookup table. this will require a read update
+	/* Store this lookup entry at this block num position in the lookup table. this will require a read update
 	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
 	we run everything through the transaction logger because this is where it counts. */
 
@@ -386,19 +384,23 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 		return ret
 	}
 
-	var start_pos, start_block, end_pos, end_block, start_offset uint32
+	// now figure out what block the block_num entry is in and load it
+	var _, start_block, _, end_block, start_offset uint32
 	var alldata *[]byte
-	ret, start_pos, start_block, end_pos, end_block, start_offset, alldata = this.internal_entry_load(block_num)
+	ret, _, start_block, _, end_block, start_offset, alldata = this.internal_entry_load(block_num)
 	if ret != nil {
 		return ret
 	}
+	// get the entry in byte form
 	var entrydata *[]byte
-	ret, *entrydata = entry.Serialize()
+	ret, entrydata = entry.Serialize()
 	if ret != nil {
 		return ret
 	}
-	var copied = copy((*alldata)[start_offset:start_offset+this.Get_lookup_entry_size()], entrydata)
-	if copied != this.Get_lookup_entry_size() {
+	// and write it over the entry in the block where the entry lives.
+	var end_offset = start_offset + this.Get_lookup_entry_size()
+	var copied int = copy((*alldata)[int(start_offset):end_offset], (*entrydata)[:])
+	if copied != int(this.Get_lookup_entry_size()) {
 		return tools.Error(this.log, "lookup_entry_store failed to update the block while copying the entry data into it. ",
 			"expected to copy: ", this.Get_lookup_entry_size(), " only copied ", copied)
 	}
@@ -407,7 +409,7 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	var pos uint32 = 0
 	for lp := start_block; lp < (end_block + 1); lp++ {
 		var data = (*alldata)[pos : pos+this.Get_lookup_entry_size()]
-		ret, data = this.transaction_log_storage.Write_block(lp, data)
+		ret = this.transaction_log_storage.Write_block(lp, &data)
 		if ret != nil {
 			return ret
 		}
@@ -415,6 +417,8 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 
 	return nil
 }
+
+/// got up to here.
 
 // func (this *Slookup_i) print_me(pos uint32, last_key string) {
 

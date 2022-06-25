@@ -238,7 +238,7 @@ func (this *Slookup_i_entry) Serialized_size() uint32 {
 	return retval
 }
 
-func (this *Slookup_i_entry) Serialize() (tools.Ret, *bytes.Buffer) {
+func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 	/* serialize this node into a byte array, which defines the length of a horribly misaligned lookup table entry */
 	/* actually since everything is uint32s now, it's possible to make a block_group_count such that
 	a pile of entries will fit neatly in a block */
@@ -271,7 +271,9 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *bytes.Buffer) {
 	/* unlike stree, we don't write the actual value here, somebody else is going to have to deal with writing out
 	the data to the data area block */
 
-	return nil, bb
+	var bret []byte = bb.Bytes()
+
+	return nil, &bret
 }
 
 func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
