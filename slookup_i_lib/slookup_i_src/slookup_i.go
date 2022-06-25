@@ -209,18 +209,6 @@ the free position will become part of a transaction. as such since we hit it a l
 it here so we don't actually read the block every single time we ask for it. it is sorta a storage thing
 but it is also sorta a slookup_i thing, but it's more a slookup_i thing, so we'll put it here. */
 
-/// got up to here.
-
-func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
-	/* for now, read the header block from the transaction log, deserialize it and return the free position */
-	// we can make a cache later.
-	var ret, pos = this.transaction_log_storage.Get_free_position()
-	if ret != nil {
-		return ret, 0
-	}
-	return nil, pos
-}
-
 func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) {
 	/* There are/can be three things in the file. the lookup table always comes first.
 	   then there's a pile of blocks for the transaction log (or zero if it is not stored here)
@@ -239,6 +227,16 @@ func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
 	   based on the size of the block device and how many bytes per entry we have and how big the transaction log data is. */
 	// we can make a cache later.
 	var ret, pos = this.transaction_log_storage.Get_first_data_block_position()
+	if ret != nil {
+		return ret, 0
+	}
+	return nil, pos
+}
+
+func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
+	/* for now, read the header block from the transaction log, deserialize it and return the free position */
+	// we can make a cache later.
+	var ret, pos = this.transaction_log_storage.Get_free_position()
 	if ret != nil {
 		return ret, 0
 	}
@@ -355,23 +353,10 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry, li
 	if ret != nil {
 		return ret, nil
 	}
+
 	ret = this.check_data_block_limits(data_block_num)
 	if ret != nil {
 		return ret, nil
-	}
-	xxxz
-	if data_block_num == 0 {
-		return tools.Error(this.log, "sanity failure, data_block_num is zero for block_num: we don't know"), nil
-	}
-
-	var ret, first_data_position = this.Get_first_data_position()
-	if ret != nil {
-		return ret, nil
-	}
-
-	if data_block_num < first_data_position {
-		return tools.Error(this.log, "sanity failure, somebody is trying to data_block_load data that is in the lookup table block space: ",
-			"data_block_num: ", data_block_num, " first data_position: ", first_data_position), nil
 	}
 
 	var data *[]byte
@@ -381,12 +366,15 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry, li
 	}
 
 	if uint32(len(*data)) > this.m_max_value_length {
-		return tools.Error(this.log, "transaction_log read block returned data of length: ", len(*data),
+		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
+			" returned data of length: ", len(*data),
 			"which is more than the max data block size: ", this.m_max_value_length), nil
 	}
 
 	return nil, data
 }
+
+/// got up to here.
 
 func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
 	/* Store the lookup entry at this block num position in the lookup table. this will require a read update
