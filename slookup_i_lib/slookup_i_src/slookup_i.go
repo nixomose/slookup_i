@@ -418,8 +418,6 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	return nil
 }
 
-/// got up to here.
-
 // func (this *Slookup_i) print_me(pos uint32, last_key string) {
 
 // 	var ret, n = this.Node_load(pos)
@@ -442,8 +440,9 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 // }
 
 func (this *Slookup_i) calculate_offspring_data_blocks_for_value(value_length uint32) (tools.Ret, *uint32) {
-	/* return how many offspring nodes we need for a value of this length,
-	 * not the total number of nodes, don't include mother node */
+	/* return how many blocks in a block group we need for a value of this length */
+
+	// unlike stree there is no mother node, so it is possible to have data of zero length taking up zero blocks.
 	if value_length == 0 {
 		var rval uint32 = 0
 		return nil, &rval
@@ -453,16 +452,15 @@ func (this *Slookup_i) calculate_offspring_data_blocks_for_value(value_length ui
 	if value_length%this.m_max_value_length != 0 {
 		nnodes++ // there was some data that spilled over to the next node
 	}
-	/* remove the count for the space in the mother node. If we were passed zero then this will yield -1
-	 * so we check for zero above */
-	nnodes--
-	if nnodes > this.m_offspring_per_node { // they sent us a value larger than fits in the block
+	if nnodes > this.m_block_group_count { // they sent us a value larger than fits in the block
 		return tools.Error(this.log,
-			"value size ", value_length, " is too big to fit in ", (this.m_offspring_per_node + 1), " nodes of ",
-			this.m_max_value_length, " length totaling ", (this.m_offspring_per_node+1)*this.m_max_value_length), nil
+			"value size ", value_length, " is too big to fit in ", (this.m_block_group_count), " blocks of ",
+			this.m_max_value_length, " length totaling ", (this.m_block_group_count)*this.m_max_value_length), nil
 	}
 	return nil, &nnodes
 }
+
+/// got up to here.
 
 func (this *Slookup_i) get_block_size_in_bytes() uint32 {
 	/* this returns the number of bytes of user storable data in a node, it is not the size of the node.
