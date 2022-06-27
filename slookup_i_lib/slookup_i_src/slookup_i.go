@@ -269,12 +269,21 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	return
 }
 
-func (this *Slookup_i) check_lookup_table_block_limits(block_num uint32) tools.Ret {
-	/* for functions that operate on the lookup table part of the data store, verify that
-	block_num fits within the bounds of the blocks we have allocated for this block device.
-	keep in mind, that if there are 10 blocks and there are 5 offspring/block_group_count
-	then the lookup table still only has 10 entries in it, even though there can be a max of
-	50 data blocks. */
+func (this *Slookup_i) check_lookup_table_limits(block_num uint32) tools.Ret {
+	/* So there are three check block limits functions.
+	      1) this one, the simplest, just make sure that block_num is a valid block
+	         given the number of blocks that can be stored in this block device.
+	   			As in, if there are 10 blocks, we make sure block_num is >= 1 and < 10
+	   	 2) the second one is a bit less obvious, when we're reading or writing actual
+	         lookup table blocks when we update a lookup table entry, we have to make sure
+	   			that the block we're updating exists within the bounds of the blocks that comprise
+	   			the lookup table.
+	   	 3) the third one is just to check that the data block being checked exists within
+	         the range of blocks (absolute from the start of the entire set of storage blocks).
+	   			so if there are 10 blocks starting at block 3, make sure block_num >= 3  and < 13.
+	   	 4) I guess we need a version of 1 and 2 for the log entry too... */
+
+	// this is function #1
 
 	if block_num == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on block zero.")
@@ -291,6 +300,41 @@ func (this *Slookup_i) check_lookup_table_block_limits(block_num uint32) tools.R
 	return nil
 }
 
+func (this *Slookup_i) check_lookup_table_entry_block_limits(block_num uint32) tools.Ret {
+	/* for functions that operate on the lookup table part of the data store, verify that
+	block_num fits within the bounds of the blocks we have allocated for this block device
+	for the lookup table itself. */
+
+	// this is function #2
+
+	// first figure out how many blocks are allocated for the lookup table.
+
+	var ret, blocks = this.Get_total_blocks()
+	if ret != nil {
+		return ret
+	}
+	blocks = blocks / this.m_entry_length
+	if blocks%this.m_entry_length != 0 {
+		blocks++ // this last block is not filled to the end with entries.
+	}
+
+	if block_num == 0 {
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on block zero.")
+	}
+	var lookup_table_start_block uint32 = 1
+	var lookup_table_end_block = lookup_table_start_block + blocks
+
+	if block_num < lookup_table_start_block {
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a lookup table entry block before the start ",
+			"of the lookup table: block_num: ", block_num, " lookup table start block: ", lookup_table_start_block)
+	}
+	if block_num > lookup_table_end_block {
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a lookup table entry block past the end ",
+			"of the lookup table: block_num: ", block_num, " lookup table end block: ", lookup_table_end_block)
+	}
+	return nil
+}
+
 func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret {
 	/* for functions that operate on the data block portion of the data store, verify that
 	data_block_num fits within the bounds of the absolution position of blocks we have allocated for data
@@ -298,6 +342,8 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 	keep in mind, that if there are 10 blocks and there are 5 offspring/block_group_count
 	then there are 50 total data_blocks, but the starting position, isn't zero, it's the first block after
 	the end of the transaction log */
+
+	// this is function #3
 
 	if data_block_num == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block at block zero.")
@@ -307,17 +353,26 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 		return ret
 	}
 	if data_block_num < first_data_block_position {
-		return tools.Error(this.log, "sanity failure, somebody is checking a data_block position: ", data_block_num,
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block position: ", data_block_num,
 			" which is before the first data block location: ", first_data_block_position)
 	}
 
-	var last_possible_data_block_position = first_data_block_position + this.m_block_group_count
+	var last_possible_data_block_position uint32
+	ret, last_possible_data_block_position = this.Get_total_blocks()
+	if ret != nil {
+		return ret
+	}
+	last_possible_data_block_position *= this.m_block_group_count
+	last_possible_data_block_position += first_data_block_position
+
 	if data_block_num > last_possible_data_block_position { // check for off by one here.
-		return tools.Error(this.log, "sanity failure, somebody is checking a data_block position: ", data_block_num,
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block position: ", data_block_num,
 			" which is after the last possible data block location: ", last_possible_data_block_position)
 	}
 	return nil
 }
+
+//xxxz got to here
 
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
 	/* read only the lookup entry for a block num.
@@ -484,7 +539,7 @@ func (this *Slookup_i) Get_block_size_with_offspring_in_bytes() uint32 {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 	// let's see if we can nest locks, apparently you can not. not a recursive lock, good to know.
-	var max_node_size = max_value_length * (this.m_offspring_per_node + 1) // +1 is for mother node
+	var max_node_size = max_value_length * (this.m_block_group_count)
 	return max_node_size
 }
 func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
