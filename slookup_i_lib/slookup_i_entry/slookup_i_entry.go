@@ -55,6 +55,8 @@ type Slookup_i_entry struct {
 	It is therefore possible to have conflicting information, like an array of length 5 with only one non zero value in it, but
 	a value length of more than 2 blocks worth. We will be careful. I mean you can also have a block list in stree which is
 	spotted with zeroes, which is also illegal, so we just take care not to do that. */
+	/* basically, we don't specifically need a field in this struct to hold the length of the data in this entry,
+	we can use the len(value) for that, but we will have to serialize that number to disk and back. */
 
 	value []byte /* the actual value data. is not stored in the lookup entry (seralized/deserialize),
 	but we keep it here so we have it all in one place. */
@@ -63,7 +65,7 @@ type Slookup_i_entry struct {
 	 * serializing a node means getting the actual size of the block_group_list array and writing that so we can
 	 * deserialize correctly. which means this value gets set once at creation and deserializing
 	 * does not overwrite it so it better be correct. it is block_size * block_group_count, the amount of data one
-	 block_num refers to in bytes. */
+	 block_num refers to in bytes, which is different than the max_value_length in slookup_i */
 	max_value_length uint32
 
 	/* so now we're left with the problem of when we need to move a data_block we have to find the lookup table
@@ -164,6 +166,12 @@ func (this *Slookup_i_entry) Get_data_block_pos(block_group_pos uint32) uint32 {
 }
 
 func (this *Slookup_i_entry) Get_value_length() uint32 {
+	// return the length of the data in this block_group set
+	return uint32(len(this.value))
+}
+
+func (this *Slookup_i_entry) Get_max_value_length() uint32 {
+	// return the max length of data
 	return this.max_value_length
 }
 
@@ -277,7 +285,12 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 }
 
 func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
-	/* deserialize incoming data into this entry */
+	/* deserialize incoming data into this entry.
+	interesting to note that an unused entry (one that has previously not ever been written to) will
+	be all zeroes, we should make sure to deserialize correctly and make the correct zero length value.
+	it is for this reason that when initializing an slookup_i data store you must suffer the pain of zeroing
+	out the entire lookup table. if there is existing junk in the lookup table storage space, this deserialize
+	will make a mess of things. */
 
 	var bpos int = 0
 	var bp []byte = *bs
@@ -301,6 +314,9 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 
 	/* we serialized the actual length of the data field (not the data), we allocate the value memory here and
 	that's how we know how much data to read later, the size of the array stores the value length. */
+	/* upon reflection, this is a bit dumb. we're wasting time and memory on an allocation that we may never
+	read the value into, just to have somewhere to store the length of the value we may eventually read.
+	we should revisit this someday. we can still store zero length values this way though. */
 
 	this.value = make([]byte, int(data_value_length))
 	return nil
