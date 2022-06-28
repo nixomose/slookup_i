@@ -462,7 +462,14 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	return nil, data
 }
 
+/* it may seem simpler to say "I want to read this block" then iterate through all
+the block group members, and the above function is complexity overkill, but we'll
+need something like that when it comes to moving individual data blocks around, 
+they'll have to be able to read a single member of a block group and get the length
+right. */
+
 // now we need a function to read in all the blocks and put them in the entry.value...
+and we will use go routines.
 xxxz
 got up to here... 
 
