@@ -40,6 +40,9 @@ import (
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
+// this is the block that the lookup table starts at, block 0 is the header.
+const LOOKUP_TABLE_START_BLOCK uint32 = 1
+
 type Slookup_i struct {
 
 	/* this is the guts of the lookup table. it'll be a bit more refined since we worked out all the details in
@@ -58,11 +61,12 @@ type Slookup_i struct {
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
-	transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
+	m_storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
+	m_transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
 
 	m_entry_length     uint32 // this is the (cached) serialized size of the entry given the number of offspring
-	m_max_value_length uint32 // this is the maximum size of the value in a storable block, multiple blocks (of mothers and offspring) make up a storable unit (a block group)
+	m_max_value_length uint32 // this is the maximum size of the value in 1 storable block, multiple blocks make up a storable unit (a block group)
+	// which is different than max_value_length in slookup_i_entry.
 
 	/* How many elements in the offspring array for each node */
 	m_block_group_count uint32 // a.k.a. m_offspring_per_node
@@ -88,9 +92,9 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 	var s Slookup_i
 	s.log = l
 	/* storage gives you direct access to the backing store so you can init and such */
-	s.storage = b
+	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
-	s.transaction_log_storage = t
+	s.m_transaction_log_storage = t
 	s.m_max_value_length = max_value_length // the amount of data that will fit in one block group, not one block
 	s.m_block_group_count = block_group_count
 	/* block_group_count * value_length (not max_value_length) is the max data size we can store per write insert request.
@@ -108,7 +112,7 @@ func (this *Slookup_i) Get_logger() *tools.Nixomosetools_logger {
 func (this *Slookup_i) Is_initialized() (tools.Ret, bool) {
 	/* check the first 4k for zeroes. */
 
-	var ret, uninitted = this.storage.Is_backing_store_uninitialized()
+	var ret, uninitted = this.m_storage.Is_backing_store_uninitialized()
 	if ret != nil {
 		return ret, false
 	}
@@ -122,7 +126,7 @@ func (this *Slookup_i) Is_initialized() (tools.Ret, bool) {
 func (this *Slookup_i) Init() tools.Ret {
 	/* init the backing store, as in if it's a filestore, write the header info
 	so it becomes initted, if it's a block device, zero out the lookup table. */
-	return this.storage.Init()
+	return this.m_storage.Init()
 }
 
 func (this *Slookup_i) Startup(force bool) tools.Ret {
@@ -144,11 +148,11 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 	}
 
 	// need to start up the transaction log here too?
-	var ret = this.storage.Startup(force)
+	var ret = this.m_storage.Startup(force)
 	if ret != nil {
 		return ret
 	}
-	ret = this.transaction_log_storage.Startup(force)
+	ret = this.m_transaction_log_storage.Startup(force)
 	return ret
 }
 
@@ -159,11 +163,11 @@ func (this *Slookup_i) Shutdown() tools.Ret {
 	not cleanly enough that the application was able to complete an atomic transaction
 	we don't want to write the transcation end into the log, so when it gets replayed
 	it will not apply the last (incomplete) transaction. */
-	var ret = this.transaction_log_storage.Shutdown()
+	var ret = this.m_transaction_log_storage.Shutdown()
 	if ret != nil {
 		return nil
 	}
-	return this.storage.Shutdown()
+	return this.m_storage.Shutdown()
 }
 
 func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
@@ -173,7 +177,8 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 		fmt.Println(ret.Get_errmsg())
 		return
 	}
-	// this is really a slookup piece of data but it's actually persistently stored in storage so that's where we get it from.
+	/* this is really a slookup piece of data but it's actually persistently stored in storage
+	(in the header block) so that's where we get it from. */
 	var first_data_position uint32
 	ret, first_data_position = this.Get_first_data_block_position()
 	if ret != nil {
@@ -200,7 +205,7 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 }
 
 func (this *Slookup_i) Get_lookup_entry_size() uint32 {
-	/* return the size of the stree node without the value on the end */
+	/* return the size of the slookup_i entry in bytes without the value. */
 	return this.m_entry_length
 }
 
@@ -215,7 +220,7 @@ func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) 
 		 and then the actual data blocks. this returns the absolute block position of the first block
 		 holding transaction log information, after the end of the lookup table. */
 	// we can make a cache later.
-	var ret, pos = this.transaction_log_storage.Get_first_transaction_log_position()
+	var ret, pos = this.m_transaction_log_storage.Get_first_transaction_log_position()
 	if ret != nil {
 		return ret, 0
 	}
@@ -226,7 +231,7 @@ func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
 	/* for now, read the header block from the transaction log, deserialize it and return the first data position
 	   based on the size of the block device and how many bytes per entry we have and how big the transaction log data is. */
 	// we can make a cache later.
-	var ret, pos = this.transaction_log_storage.Get_first_data_block_position()
+	var ret, pos = this.m_transaction_log_storage.Get_first_data_block_position()
 	if ret != nil {
 		return ret, 0
 	}
@@ -236,7 +241,7 @@ func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
 func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	/* for now, read the header block from the transaction log, deserialize it and return the free position */
 	// we can make a cache later.
-	var ret, pos = this.transaction_log_storage.Get_free_position()
+	var ret, pos = this.m_transaction_log_storage.Get_free_position()
 	if ret != nil {
 		return ret, 0
 	}
@@ -249,39 +254,46 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
 	so we might have to concatenate. something we'll have to fix with goroutines someday. */
 	start_pos = block_num * this.Get_lookup_entry_size()
-	start_block = (start_pos / this.get_block_size_in_bytes()) + 1 // lookup table starts at block 1
+	start_block = (start_pos / this.get_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK // lookup table starts at block 1
 
 	end_pos = start_pos + this.Get_lookup_entry_size()
-	end_block = (end_pos / this.get_block_size_in_bytes()) + 1
+	end_block = (end_pos / this.get_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
+
+	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
+		return
+	}
+	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
+		return
+	}
 
 	*alldata = make([]byte, 0)
 	for lp := start_block; lp < (end_block + 1); lp++ {
 		var data *[]byte
-		ret, data = this.transaction_log_storage.Read_block(lp)
+		ret, data = this.m_transaction_log_storage.Read_block(lp)
 		if ret != nil {
 			return
 		}
 		*alldata = append(*alldata, *data...)
 	}
 
-	// get the position of this entry in this alldata
+	// get the position of this entry in this alldata, modulo works here too...
 	start_offset = start_pos - (start_block * this.get_block_size_in_bytes())
 	return
 }
 
 func (this *Slookup_i) check_lookup_table_limits(block_num uint32) tools.Ret {
 	/* So there are three check block limits functions.
-	      1) this one, the simplest, just make sure that block_num is a valid block
-	         given the number of blocks that can be stored in this block device.
-	   			As in, if there are 10 blocks, we make sure block_num is >= 1 and < 10
-	   	 2) the second one is a bit less obvious, when we're reading or writing actual
-	         lookup table blocks when we update a lookup table entry, we have to make sure
-	   			that the block we're updating exists within the bounds of the blocks that comprise
-	   			the lookup table.
-	   	 3) the third one is just to check that the data block being checked exists within
-	         the range of blocks (absolute from the start of the entire set of storage blocks).
-	   			so if there are 10 blocks starting at block 3, make sure block_num >= 3  and < 13.
-	   	 4) I guess we need a version of 1 and 2 for the log entry too... */
+	   1) this one, the simplest, just make sure that block_num is a valid block
+	      given the number of blocks that can be stored in this block device.
+	 			As in, if there are 10 blocks (and n blocks in the block group), we make sure block_num is >= 1 and < 10
+	 	 2) the second one is a bit less obvious, when we're reading or writing actual
+	      lookup table blocks when we update a lookup table entry, we have to make sure
+	 			that the block we're updating exists within the bounds of the blocks that comprise
+	 			the lookup table.
+		 3) the third one is just to check that the data block being checked exists within
+	      the range of blocks (absolute from the start of the entire set of storage blocks).
+	 			so if there are 10 blocks starting at block 3, make sure block_num >= 3  and < 13.
+	 	 4) I guess we need a version of 1 and 2 for the transaction log too... */
 
 	// this is function #1
 
@@ -321,12 +333,11 @@ func (this *Slookup_i) check_lookup_table_entry_block_limits(block_num uint32) t
 	if block_num == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on block zero.")
 	}
-	var lookup_table_start_block uint32 = 1
-	var lookup_table_end_block = lookup_table_start_block + blocks
+	var lookup_table_end_block = LOOKUP_TABLE_START_BLOCK + blocks
 
-	if block_num < lookup_table_start_block {
+	if block_num < LOOKUP_TABLE_START_BLOCK {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a lookup table entry block before the start ",
-			"of the lookup table: block_num: ", block_num, " lookup table start block: ", lookup_table_start_block)
+			"of the lookup table: block_num: ", block_num, " lookup table start block: ", LOOKUP_TABLE_START_BLOCK)
 	}
 	if block_num > lookup_table_end_block {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a lookup table entry block past the end ",
@@ -372,12 +383,10 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 	return nil
 }
 
-//xxxz got to here
-
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
 	/* read only the lookup entry for a block num.
 	this function can't read transaction log blocks, or data blocks. */
-	var ret = this.check_lookup_table_block_limits(block_num)
+	var ret = this.check_lookup_table_limits(block_num)
 	if ret != nil {
 		return ret, nil
 	}
@@ -391,16 +400,18 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	return ret, entry
 }
 
-func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry, list_position uint32) (tools.Ret, *[]byte) {
+func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entry, list_position uint32) (tools.Ret, *[]byte) {
 	/* given a lookup table entry, and the array position in the block_group list,
-	load the data the entry refers to. this just raw reads the data block from the correct location.
+	load the data the entry refers to and return it. we can't store it in entry.value, because we're not getting the
+	whole value, we're only getting one block in the block_group. this just raw reads the data block from the correct location.
 	All data block locations are relative to the beginning of the block device, not the
-	start position of the data after the lookup table. The reason is we may resize the
+	start position of the data after the lookup table (actually after transaction log). The reason is we may resize the
 	lookup table someday and we don't want the blocks to move when the start-of-data block
 	moves. */
+	/* we're eventually going to run this from a goroutine so there will be some locking neccesary, although maybe not here. */
 
 	if entry == nil {
-		return tools.Error(this.log, "sanity failure, block_load got nil entry."), nil
+		return tools.Error(this.log, "sanity failure, Lookup_entry_load got nil entry."), nil
 	}
 
 	/* not to be confused with the block_num the user refers to. this is the absolute position location of the data */
@@ -415,7 +426,7 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry, li
 	}
 
 	var data *[]byte
-	ret, data = this.transaction_log_storage.Read_block(data_block_num) // absolute block position
+	ret, data = this.m_transaction_log_storage.Read_block(data_block_num) // absolute block position
 	if ret != nil {
 		return ret, nil
 	}
@@ -423,18 +434,44 @@ func (this *Slookup_i) Block_load(entry *slookup_i_lib_entry.Slookup_i_entry, li
 	if uint32(len(*data)) > this.m_max_value_length {
 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
 			" returned data of length: ", len(*data),
-			"which is more than the max data block size: ", this.m_max_value_length), nil
+			" which is more than the max data block size: ", this.m_max_value_length), nil
+	}
+	if uint32(len(*data)) < this.m_max_value_length {
+		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
+			" returned data of length: ", len(*data),
+			" which is more shorter than the max data block size: ", this.m_max_value_length), nil
+	}
+	/* the data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
+	of the data in the whole block group, so shorten the data we're returning if it's not the entire block */
+	var position_of_last_byte_in_this_block uint32 = list_position * this.m_max_value_length
+	var block_group_value_length = entry.Get_value_length()
+	if position_of_last_byte_in_this_block > block_group_value_length {
+		/* this is (must be) the last block_group_list in the value, and it doesn't fill out this block
+		so we must shorten the data in this block to the size of the value for the last block, which we are. */
+		if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_max_value_length {
+			/* so this one's weird, this means that they asked for a block in the block_group list beyond
+			where any data could possibly be given the length of the block_group of data. */
+			return tools.Error(this.log, "sanity failure: data_block_load for list_position: ", list_position,
+				" of ", this.m_max_value_length, " bytes each, is more than a block longer than the value of this ",
+				"block_group which is: ", block_group_value_length, " bytes."), nil // hope that makes sense. should never happen. :-)
+		}
+		var length_of_this_data_block = block_group_value_length % this.m_max_value_length
+		*data = (*data)[0:length_of_this_data_block]
 	}
 
 	return nil, data
 }
+
+// now we need a function to read in all the blocks and put them in the entry.value...
+xxxz
+got up to here... 
 
 func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
 	/* Store this lookup entry at this block num position in the lookup table. this will require a read update
 	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
 	we run everything through the transaction logger because this is where it counts. */
 
-	var ret = this.check_lookup_table_block_limits(block_num)
+	var ret = this.check_lookup_table_limits(block_num)
 	if ret != nil {
 		return ret
 	}
@@ -464,7 +501,7 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	var pos uint32 = 0
 	for lp := start_block; lp < (end_block + 1); lp++ {
 		var data = (*alldata)[pos : pos+this.Get_lookup_entry_size()]
-		ret = this.transaction_log_storage.Write_block(lp, &data)
+		ret = this.m_transaction_log_storage.Write_block(lp, &data)
 		if ret != nil {
 			return ret
 		}
@@ -494,7 +531,7 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 // 	}
 // }
 
-func (this *Slookup_i) calculate_offspring_data_blocks_for_value(value_length uint32) (tools.Ret, *uint32) {
+func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32) (tools.Ret, *uint32) {
 	/* return how many blocks in a block group we need for a value of this length */
 
 	// unlike stree there is no mother node, so it is possible to have data of zero length taking up zero blocks.
@@ -515,16 +552,15 @@ func (this *Slookup_i) calculate_offspring_data_blocks_for_value(value_length ui
 	return nil, &nnodes
 }
 
-/// got up to here.
-
 func (this *Slookup_i) get_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a node, it is not the size of the node.
-	 * this is used to report to the user how much space is available to store, so it should be used in the
-	 * used/total block count * this number to denote the number of actual storable bytes. */
+	/* this returns the number of bytes of user storable data in an entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
 
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	return this.m_max_value_length
+	return this.m_max_value_length * this.m_block_group_count
 }
 
 // stree had a better name for this, with slookup I need a name equivalent.
@@ -680,7 +716,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			var amount uint32 = offspring_nodes_required - current_offspring_count
 			//this.log.Debug("allocating " + tools.Uint32tostring(amount) + " new nodes to expand for update.")
 			var iresp []uint32
-			ret, iresp = this.storage.Allocate(amount)
+			ret, iresp = this.m_storage.Allocate(amount)
 			if ret != nil {
 				return ret
 			}
@@ -831,7 +867,7 @@ func (this *Slookup_i) update_or_insert_always(key string, new_value []byte, ins
 		var nn *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, key, make([]byte, 1), this.m_max_key_length, this.m_max_value_length, this.m_offspring_per_node)
 
 		// make room, and add new node at first free spot
-		var ret, iresp = this.storage.Allocate(1) // ask for one node for the mother node
+		var ret, iresp = this.m_storage.Allocate(1) // ask for one node for the mother node
 		if ret != nil {
 			return ret
 		}
@@ -859,7 +895,7 @@ func (this *Slookup_i) update_or_insert_always(key string, new_value []byte, ins
 				return ret
 			}
 			// if that works, update the parent (root node) to point to it */
-			ret = this.storage.Set_root_node(new_item_pos) // adding first node at root.
+			ret = this.m_storage.Set_root_node(new_item_pos) // adding first node at root.
 			if ret != nil {
 				this.deallocate_on_failure()
 				return ret
@@ -907,7 +943,7 @@ func (this *Slookup_i) update_or_insert_always(key string, new_value []byte, ins
 }
 
 func (this *Slookup_i) deallocate_on_failure() {
-	var deRet tools.Ret = this.storage.Deallocate()
+	var deRet tools.Ret = this.m_storage.Deallocate()
 	if deRet != nil {
 		tools.Error(this.log, "unable to deallocate tree item after insert failure, tree is corrupt: ", deRet.Get_errmsg())
 	}
@@ -1008,7 +1044,7 @@ func (this *Slookup_i) search(key string, to_insert bool) (fRet tools.Ret, respf
 		         9   11   12
 		            /      \
 		          10       12 */
-	var ret, iresp = this.storage.Get_root_node()
+	var ret, iresp = this.m_storage.Get_root_node()
 	if ret != nil {
 		return ret, false, nil, 0
 	}
@@ -1082,7 +1118,7 @@ func (this *Slookup_i) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
-	var r, iresp = this.storage.Get_root_node()
+	var r, iresp = this.m_storage.Get_root_node()
 	if r != nil {
 		return r, false, nil
 	}
@@ -1242,7 +1278,7 @@ func (this *Slookup_i) logically_delete(pos uint32) tools.Ret {
 	if (n.Get_left_child() == 0) && (n.Get_right_child() == 0) {
 		/* tell my parent that I'm gone */
 		if n.Get_parent() == 0 { /* deleting root node */
-			return this.storage.Set_root_node(0)
+			return this.m_storage.Set_root_node(0)
 		}
 		/* Whichever child of the parent we are, remove it. */
 		var ret, resp = this.Node_load(n.Get_parent())
@@ -1280,7 +1316,7 @@ func (this *Slookup_i) logically_delete(pos uint32) tools.Ret {
 			mykid = n.Get_left_child()
 		}
 		if n.Get_parent() == 0 { /* If I was the root node, my kid becomes the root node */
-			ret = this.storage.Set_root_node(mykid)
+			ret = this.m_storage.Set_root_node(mykid)
 			if ret != nil {
 				return ret
 			}
@@ -1413,7 +1449,7 @@ func (this *Slookup_i) logically_delete_two_kids(pos uint32) tools.Ret {
 	/* and now tell pos's parent that his kid is mover */
 	var p uint32 = n.Get_parent()
 	if p == 0 { /* if we're rootnode, mover becomes the root node */
-		ret = this.storage.Set_root_node(mover)
+		ret = this.m_storage.Set_root_node(mover)
 		if ret != nil {
 			return ret
 		}
@@ -1755,7 +1791,7 @@ func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_res
 		/* okay I meant this for below, in this case, it actually is simple, if you're deleting the root node
 		 * then it must be a mother, just deallocate it. logically delete would have already set the root
 		 * node to 0 by the time we get here. */
-		return this.storage.Deallocate(), moved_resp_from, moved_resp_to
+		return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
 	}
 	if free_position == 2 {
 		return tools.Error(this.log,
@@ -1817,7 +1853,7 @@ func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_res
 		this.log.Debug("deleted item is in last position, just deallocating.")
 		moved_resp_from = pos // nothing is being moved, but we have to return something
 		moved_resp_to = pos
-		return this.storage.Deallocate(), moved_resp_from, moved_resp_to
+		return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
 	}
 
 	// nothing in mover has to change, just the people pointing to mover have to change
@@ -1944,7 +1980,7 @@ func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_res
 				 * know not to update pointers of logically deleted nodes. But we missed this one case, where
 				 * the one being deleted is also the root node. */
 
-				var ret, rootnoderesp = this.storage.Get_root_node()
+				var ret, rootnoderesp = this.m_storage.Get_root_node()
 				if ret != nil {
 					return ret, 0, 0
 				}
@@ -1953,7 +1989,7 @@ func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_res
 				 * got logically deleted and is now being physically deleted, we don't update the root node. */
 				var root_node_pos uint32 = rootnoderesp
 				if root_node_pos == mover_pos {
-					ret = this.storage.Set_root_node(pos)
+					ret = this.m_storage.Set_root_node(pos)
 					if ret != nil {
 						return ret, 0, 0
 					}
@@ -2075,7 +2111,7 @@ func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_res
 	} // if mover is a mother node
 
 	// remove old mover position from the allocated array list.
-	return this.storage.Deallocate(), moved_resp_from, moved_resp_to
+	return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
 }
 
 func (this *Slookup_i) Delete(key string, not_found_is_error bool) tools.Ret {
@@ -2132,7 +2168,7 @@ func (this *Slookup_i) Delete(key string, not_found_is_error bool) tools.Ret {
 func (this *Slookup_i) Get_root_node() uint32 {
 	// only used for treeprinter, package scope
 
-	var ret, iresp = this.storage.Get_root_node()
+	var ret, iresp = this.m_storage.Get_root_node()
 	if ret != nil {
 		fmt.Println(ret)
 		return 0
@@ -2178,7 +2214,7 @@ func (this *Slookup_i) Get_total_blocks() (tools.Ret, uint32) {
 
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	return this.storage.Get_total_blocks()
+	return this.m_storage.Get_total_blocks()
 }
 
 // func (s *Stree_v) get_max_key_length() uint32 {
@@ -2258,10 +2294,10 @@ func (this *Slookup_i) diag_dump_one(lp uint32) {
 }
 
 func (this *Slookup_i) Wipe() tools.Ret {
-	return this.storage.Wipe()
+	return this.m_storage.Wipe()
 }
 
 func (this *Slookup_i) Dispose() tools.Ret {
 	this.Shutdown()
-	return this.storage.Dispose()
+	return this.m_storage.Dispose()
 }
