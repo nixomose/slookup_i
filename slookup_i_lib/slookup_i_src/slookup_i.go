@@ -464,14 +464,14 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 
 /* it may seem simpler to say "I want to read this block" then iterate through all
 the block group members, and the above function is complexity overkill, but we'll
-need something like that when it comes to moving individual data blocks around, 
+need something like that when it comes to moving individual data blocks around,
 they'll have to be able to read a single member of a block group and get the length
 right. */
 
 // now we need a function to read in all the blocks and put them in the entry.value...
-and we will use go routines.
-xxxz
-got up to here... 
+// and we will use go routines.
+// xxxz xxxz
+// got up to here...
 
 func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
 	/* Store this lookup entry at this block num position in the lookup table. this will require a read update
@@ -503,8 +503,8 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 		return tools.Error(this.log, "lookup_entry_store failed to update the block while copying the entry data into it. ",
 			"expected to copy: ", this.Get_lookup_entry_size(), " only copied ", copied)
 	}
-	/* now we have to write the block(s) back */
 
+	/* now we have to write the block(s) back */
 	var pos uint32 = 0
 	for lp := start_block; lp < (end_block + 1); lp++ {
 		var data = (*alldata)[pos : pos+this.Get_lookup_entry_size()]
@@ -512,6 +512,7 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 		if ret != nil {
 			return ret
 		}
+		pos += this.Get_lookup_entry_size()
 	}
 
 	return nil
@@ -559,8 +560,8 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 	return nil, &nnodes
 }
 
-func (this *Slookup_i) get_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in an entry, it is not the size of the data block.
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
 	 	 * as in, it is the value_size * block_group_count, not just value_size.
 		 * this is used to report to the user how much space is available to store, so it should be used in the
 		 * used/total block count * this number to denote the number of actual storable bytes. */
@@ -570,21 +571,14 @@ func (this *Slookup_i) get_block_size_in_bytes() uint32 {
 	return this.m_max_value_length * this.m_block_group_count
 }
 
-// stree had a better name for this, with slookup I need a name equivalent.
-// for now it will be block_size and block_size_with_offspring until I come up with something better,
-// maybe data_block and block_group or something like that.
-func (this *Slookup_i) Get_block_size_with_offspring_in_bytes() uint32 {
-	/* Get_block_size_in_bytes returns the total number bytes you can store
-	in the entire mother+offspring pile of blocks, which is the number of bytes you can store in the mother or
-	offspring node times the additional nodes per block plus 1 */
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
 
-	var max_value_length = this.get_block_size_in_bytes()
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	// let's see if we can nest locks, apparently you can not. not a recursive lock, good to know.
-	var max_node_size = max_value_length * (this.m_block_group_count)
-	return max_node_size
+	return this.m_max_value_length
 }
+
 func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 	// update the data for this block with new value
 	// return error if there was a read or write problem.
@@ -600,7 +594,7 @@ func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 		return tools.Error(this.log, "trying to update with null value")
 	}
 
-	var ret = this.check_lookup_table_block_limits(block_num)
+	var ret = this.check_lookup_table_limits(block_num)
 	if ret != nil {
 		return ret
 	}
@@ -613,6 +607,7 @@ func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 	return this.perform_new_value_write(block_num, entry, new_value)
 }
 
+//xxxzgot up to here
 func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value []byte) tools.Ret {
 	/* this handles group block writes which might involve growing or shrinking the offspring list.
 	   entry is the mother lookup table entry that has the list of offspring. */
