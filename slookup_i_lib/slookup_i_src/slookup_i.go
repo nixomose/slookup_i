@@ -609,11 +609,10 @@ func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 
 //xxxzgot up to here
 func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value []byte) tools.Ret {
-	/* this handles group block writes which might involve growing or shrinking the offspring list.
-	   entry is the mother lookup table entry that has the list of offspring. */
+	/* this handles group block writes which might involve growing or shrinking the block_group_list. */
 	// get a count of how many offspring there are now in mother node
 	var current_offspring_count uint32 = entry.Count_offspring()
-
+	xxxz
 	// figure out how many nodes we need to store this write.
 	var new_value_length uint32 = uint32(len(new_value))
 
