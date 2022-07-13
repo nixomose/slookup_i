@@ -45,9 +45,9 @@ type Slookup_i_backing_store_interface interface {
 
 	Store_block_data(block_num uint32, n *[]byte) tools.Ret
 
-	Get_free_position() (ret tools.Ret, resp uint32)
+	//  this is owned by slookup_i, not backing store. Get_free_position() (ret tools.Ret, resp uint32)
 
-	Get_total_blocks() (tools.Ret, uint32)
+	Get_total_blocks() (tools.Ret, uint32) // total blocks that can fit in this backing storage
 
 	Allocate(amount uint32) (tools.Ret, []uint32)
 
