@@ -37,11 +37,14 @@ import (
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
+	slookup_i_lib_header "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_src/Slookup_i_header"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
 // this is the block that the lookup table starts at, block 0 is the header.
-const LOOKUP_TABLE_START_BLOCK uint32 = 1
+const LOOKUP_TABLE_START_BLOCK uint32 = 10             // make some room in case we need it some day.
+const TRANSACTION_LOG_START_PADDING_BLOCKS uint32 = 10 // more room, this is the number of blocks after the lookup table before the transaction log starts
+const DATA_BLOCKS_START_PADDING_BLOCKS uint32 = 10     // what a horrible name for this., this is the number of blocks after the transaction log, before the data blocks start.
 
 type Slookup_i struct {
 
@@ -61,11 +64,13 @@ type Slookup_i struct {
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
+	m_header slookup_i_lib_entry.Slookup_i_header
+
 	m_storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
 	m_transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
 
-	m_entry_length     uint32 // this is the (cached) serialized size of the entry given the number of offspring
-	m_max_value_length uint32 // this is the maximum size of the value in 1 storable block, multiple blocks make up a storable unit (a block group)
+	m_entry_length    uint32 // this is the (cached) serialized size of the entry given the number of blocks in a block group
+	m_data_block_size uint32 // this is the maximum size of the value in 1 storable block, multiple blocks make up a storable unit (a block group)
 	// which is different than max_value_length in slookup_i_entry.
 
 	/* How many elements in the offspring array for each node */
@@ -75,8 +80,8 @@ type Slookup_i struct {
 	interface_lock sync.Mutex
 	log            *tools.Nixomosetools_logger
 
-	m_verify_slookup_i_entry_size uint32 // this is only used to make sure the client knows what they're doing.
-	m_verify_slookup_i_value_size uint32 // same here
+	m_verify_slookup_i_entry_size      uint32 // this is only used to make sure the client knows what they're doing.
+	m_verify_slookup_i_data_block_size uint32 // same here
 
 	debugprint bool
 }
@@ -87,7 +92,7 @@ type Slookup_i struct {
 
 func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slookup_i_backing_store_interface,
 	t slookup_i_lib_interfaces.Transaction_log_interface, entry_size uint32,
-	max_value_length uint32, block_group_count uint32) *Slookup_i {
+	data_block_size uint32, block_group_count uint32) *Slookup_i {
 
 	var s Slookup_i
 	s.log = l
@@ -95,13 +100,13 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
 	s.m_transaction_log_storage = t
-	s.m_max_value_length = max_value_length // the amount of data that will fit in one block group, not one block
+	s.m_data_block_size = data_block_size // the amount of data that will fit in one data block (ie 4k, 64k, etc, not all the blocks in a block group, just one)
 	s.m_block_group_count = block_group_count
-	/* block_group_count * value_length (not max_value_length) is the max data size we can store per write insert request.
-	 * This is what the client will see as the "block size" which is the max data we can store in a block. */
+	/* block_group_count * data_block_size  is the max data size we can store per write insert request.
+	 * This is what the client will see as the "block size" which is the max data we can store in a client 'block'. */
 	// s.interface_lock   doesn't need to be initted
 	s.m_verify_slookup_i_entry_size = entry_size // so we can verify later
-	s.m_verify_slookup_i_value_size = max_value_length
+	s.m_verify_slookup_i_data_block_size = max_value_length
 	return &s
 }
 
@@ -131,21 +136,10 @@ func (this *Slookup_i) Init() tools.Ret {
 
 func (this *Slookup_i) Startup(force bool) tools.Ret {
 	/* Verify that the lookup entry size and the data block size match what's defined in the backing store */
-	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0, this.m_max_value_length,
+	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0, this.m_data_block_size,
 		this.m_block_group_count)
 
-	var max_block_size uint32 = measure_entry.Serialized_size()
-
-	// xxxz going to need to read this from the backing store
-	if this.m_entry_length != this.m_verify_slookup_i_entry_size {
-		return tools.Error(this.log, "the recorded lookup entry size ", this.m_entry_length,
-			" doesn't equal supplied block size of ", this.m_verify_slookup_i_entry_size)
-	}
-
-	if max_block_size != this.m_verify_slookup_i_value_size {
-		return tools.Error(this.log, "the calculated data block size ", max_block_size, " doesn't equal ",
-			"supplied block size of ", this.m_verify_slookup_i_value_size)
-	}
+	var measure_entry_serialized_size uint32 = measure_entry.Serialized_size()
 
 	// need to start up the transaction log here too?
 	var ret = this.m_storage.Startup(force)
@@ -153,7 +147,27 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		return ret
 	}
 	ret = this.m_transaction_log_storage.Startup(force)
-	return ret
+	if ret != nil {
+		return ret
+	}
+
+	/* now that we can read from the backing store, get the header and verify that the data_block_size in the header
+	   that defines the backing store layout, matches what the caller sent */
+	// xxxzxxxzxxxz
+	// read_block_0
+	//		var data_block_size uint32 = header.get_block_size, whatever
+
+	// if this.m_entry_length != this.m_verify_slookup_i_entry_size {
+	// 	return tools.Error(this.log, "the recorded lookup entry size ", this.m_entry_length,
+	// 		" doesn't equal supplied block size of ", this.m_verify_slookup_i_entry_size)
+	// }
+
+	// if data_block_size != this.m_verify_slookup_i_data_block_size {
+	// 	return tools.Error(this.log, "the stored data block size ", data_block_size, " doesn't equal ",
+	// 		"supplied block size of ", this.m_verify_slookup_i_data_block_size)
+	// }
+
+	return nil //xxxz
 }
 
 func (this *Slookup_i) Shutdown() tools.Ret {
@@ -205,7 +219,7 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 }
 
 func (this *Slookup_i) Get_lookup_entry_size() uint32 {
-	/* return the size of the slookup_i entry in bytes without the value. */
+	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
 	return this.m_entry_length
 }
 
@@ -214,34 +228,65 @@ the free position will become part of a transaction. as such since we hit it a l
 it here so we don't actually read the block every single time we ask for it. it is sorta a storage thing
 but it is also sorta a slookup_i thing, but it's more a slookup_i thing, so we'll put it here. */
 
+func (this *Slookup_i) Get_transaction_log_block_count() (tools.Ret, uint32) {
+	/* I have no idea at the moment. */
+	return nil, 100
+}
+
+/* In fact this is one of the mistakes I made in stree, the backing block store shouldn't have any understanding
+of what goes in those blocks, having the filestore know what offspring are was a mistake. the positional layout of
+the lookup table, the log and the data blocks is entirely a slookup_i thing, so here is where we actually figure out
+what the locations of the three sections are, in terms of their block locations. */
+
 func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) {
 	/* There are/can be three things in the file. the lookup table always comes first.
 	   then there's a pile of blocks for the transaction log (or zero if it is not stored here)
 		 and then the actual data blocks. this returns the absolute block position of the first block
 		 holding transaction log information, after the end of the lookup table. */
 	// we can make a cache later.
-	var ret, pos = this.m_transaction_log_storage.Get_first_transaction_log_position()
-	if ret != nil {
+	/* The transaction log starts at the first block after the last block used (partial or full) of the lookup
+	table, so let's calculate the start of the lookup table, and realize, that the lookup table starts at block 1.
+	maybe that should be configurable too... */
+	var entry_size = this.Get_lookup_entry_size()
+	var ret tools.Ret
+	var number_of_blocks uint32
+	if ret, number_of_blocks = this.m_storage.Get_total_blocks(); ret != nil {
 		return ret, 0
 	}
-	return nil, pos
+	var bytes_in_lookup_table uint64 = uint64(number_of_blocks) * uint64(entry_size)
+	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(this.m_data_block_size)
+	if bytes_in_lookup_table%uint64(this.m_data_block_size) != 0 {
+		blocks_in_lookup_table += 1 // round up for the leftover unfilled last lookup table block
+	}
+	// so the first block of the transaction log is the one after that one, plus some padding.
+	var first_transaction_log_block = LOOKUP_TABLE_START_BLOCK + uint32(blocks_in_lookup_table) + TRANSACTION_LOG_START_PADDING_BLOCKS
+
+	// we should cache this at some point
+	return nil, first_transaction_log_block
 }
 
 func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
-	/* for now, read the header block from the transaction log, deserialize it and return the first data position
-	   based on the size of the block device and how many bytes per entry we have and how big the transaction log data is. */
-	// we can make a cache later.
-	var ret, pos = this.m_transaction_log_storage.Get_first_data_block_position()
-	if ret != nil {
+	/* this is the start of the transaction log block position plus the size of the transaction log plus some padding. */
+	var ret tools.Ret
+	var transaction_log_start_block uint32
+	if ret, transaction_log_start_block = this.Get_first_transaction_log_position(); ret != nil {
 		return ret, 0
 	}
-	return nil, pos
+	var transaction_log_block_count uint32
+	if ret, transaction_log_block_count = this.Get_transaction_log_block_count(); ret != nil {
+		return ret, 0
+	}
+
+	var data_blocks_start_block uint32 = transaction_log_start_block + transaction_log_block_count
+	data_blocks_start_block += DATA_BLOCKS_START_PADDING_BLOCKS
+	// remember to make a cache later.
+	return nil, data_blocks_start_block
 }
 
 func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	/* for now, read the header block from the transaction log, deserialize it and return the free position */
 	// we can make a cache later.
-	var ret, pos = this.m_transaction_log_storage.Get_free_position()
+	var ret, pos = this.m_header.free_position
 	if ret != nil {
 		return ret, 0
 	}
@@ -395,7 +440,7 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	var alldata *[]byte
 	ret, _, _, _, _, start_offset, alldata = this.internal_entry_load(block_num)
 	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size()]
-	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, block_num, this.m_max_value_length, this.m_block_group_count)
+	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, block_num, this.m_data_block_size, this.m_block_group_count)
 	ret = entry.Deserialize(this.log, &entrydata)
 	return ret, entry
 }
@@ -431,31 +476,31 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 		return ret, nil
 	}
 
-	if uint32(len(*data)) > this.m_max_value_length {
+	if uint32(len(*data)) > this.m_data_block_size {
 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
 			" returned data of length: ", len(*data),
-			" which is more than the max data block size: ", this.m_max_value_length), nil
+			" which is more than the max data block size: ", this.m_data_block_size), nil
 	}
-	if uint32(len(*data)) < this.m_max_value_length {
+	if uint32(len(*data)) < this.m_data_block_size {
 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
 			" returned data of length: ", len(*data),
-			" which is more shorter than the max data block size: ", this.m_max_value_length), nil
+			" which is more shorter than the max data block size: ", this.m_data_block_size), nil
 	}
 	/* the data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
 	of the data in the whole block group, so shorten the data we're returning if it's not the entire block */
-	var position_of_last_byte_in_this_block uint32 = list_position * this.m_max_value_length
+	var position_of_last_byte_in_this_block uint32 = list_position * this.m_data_block_size
 	var block_group_value_length = entry.Get_value_length()
 	if position_of_last_byte_in_this_block > block_group_value_length {
 		/* this is (must be) the last block_group_list in the value, and it doesn't fill out this block
 		so we must shorten the data in this block to the size of the value for the last block, which we are. */
-		if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_max_value_length {
+		if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_data_block_size {
 			/* so this one's weird, this means that they asked for a block in the block_group list beyond
 			where any data could possibly be given the length of the block_group of data. */
 			return tools.Error(this.log, "sanity failure: data_block_load for list_position: ", list_position,
-				" of ", this.m_max_value_length, " bytes each, is more than a block longer than the value of this ",
+				" of ", this.m_data_block_size, " bytes each, is more than a block longer than the value of this ",
 				"block_group which is: ", block_group_value_length, " bytes."), nil // hope that makes sense. should never happen. :-)
 		}
-		var length_of_this_data_block = block_group_value_length % this.m_max_value_length
+		var length_of_this_data_block = block_group_value_length % this.m_data_block_size
 		*data = (*data)[0:length_of_this_data_block]
 	}
 
@@ -548,14 +593,14 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 		return nil, &rval
 
 	}
-	var nnodes uint32 = value_length / this.m_max_value_length
-	if value_length%this.m_max_value_length != 0 {
+	var nnodes uint32 = value_length / this.m_data_block_size
+	if value_length%this.m_data_block_size != 0 {
 		nnodes++ // there was some data that spilled over to the next node
 	}
 	if nnodes > this.m_block_group_count { // they sent us a value larger than fits in the block
 		return tools.Error(this.log,
 			"value size ", value_length, " is too big to fit in ", (this.m_block_group_count), " blocks of ",
-			this.m_max_value_length, " length totaling ", (this.m_block_group_count)*this.m_max_value_length), nil
+			this.m_data_block_size, " length totaling ", (this.m_block_group_count)*this.m_data_block_size), nil
 	}
 	return nil, &nnodes
 }
@@ -568,7 +613,7 @@ func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
 
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	return this.m_max_value_length * this.m_block_group_count
+	return this.m_data_block_size * this.m_block_group_count
 }
 
 func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
@@ -576,7 +621,7 @@ func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
 
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	return this.m_max_value_length
+	return this.m_data_block_size
 }
 
 func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
@@ -607,64 +652,64 @@ func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 	return this.perform_new_value_write(block_num, entry, new_value)
 }
 
-//xxxzgot up to here
 func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value []byte) tools.Ret {
 	/* this handles group block writes which might involve growing or shrinking the block_group_list. */
 	// get a count of how many offspring there are now in mother node
-	var current_offspring_count uint32 = entry.Count_offspring()
-	xxxz
+	var current_block_group_count uint32 = entry.Count_offspring()
+
 	// figure out how many nodes we need to store this write.
 	var new_value_length uint32 = uint32(len(new_value))
 
-	var ret, iresp = this.calculate_offspring_data_blocks_for_value(new_value_length)
+	var ret, iresp = this.calculate_block_group_count_for_value(new_value_length)
 	if ret != nil {
 		return ret
 	}
-	var offspring_nodes_required uint32 = *iresp
+	var block_group_count_required uint32 = *iresp
 	/* first handle shrinking if need be */
-	this.log.Debug("current additional nodes: " + tools.Uint32tostring(current_offspring_count) +
-		" additional nodes required: " + tools.Uint32tostring(offspring_nodes_required))
-	if offspring_nodes_required < current_offspring_count {
-		/* all the nodes past what we need get deleted and zeroed in mother's offspring array */
+	this.log.Debug("current block group count: " + tools.Uint32tostring(current_block_group_count) +
+		" additional block group count required: " + tools.Uint32tostring(block_group_count_required))
+	if block_group_count_required < current_block_group_count {
+		/* all the nodes past what we need get deleted and zeroed in the entry's block_group_list array */
 
-		/* Very sneaky problem here:
-		   this physically_delete_one delete of offspring can cause anything to move, including the mother node.
-		   we must be careful to update the new location of the mother node when
-		   we go to write updates because it might have moved.
-		   So I thought this out and it's true, so we can either make the list of nodes to delete up front
-		   and just modify the list as it runs through (just like delete does) or we can re-read the mother
-		   node each time (following it if it has moved) until we've removed enough offspring nodes.
-		   I guess the first way is easier. but we still need to keep track of the movement of the mother node
-		   because I think it needs to be updated later anyway with the update we're trying to do. */
+		/* remember this problem that stree had?
+		   > this physically_delete_one delete of offspring can cause anything to move, including the mother node.
+		   > we must be careful to update the new location of the mother node when
+		   > we go to write updates because it might have moved.
+		   > So I thought this out and it's true, so we can either make the list of nodes to delete up front
+		   > and just modify the list as it runs through (just like delete does) or we can re-read the mother
+		   > node each time (following it if it has moved) until we've removed enough offspring nodes.
+		   > I guess the first way is easier. but we still need to keep track of the movement of the mother node
+		   > because I think it needs to be updated later anyway with the update we're trying to do.
+			 well, don't have that problem here with slookup_i */
 
 		// make a list of the offspring positions to delete
-		var amount_to_remove uint32 = current_offspring_count - offspring_nodes_required
-		this.log.Debug("removing: " + tools.Uint32tostring(amount_to_remove) + " nodes.")
+		var amount_to_remove uint32 = current_block_group_count - block_group_count_required
+		this.log.Debug("removing: " + tools.Uint32tostring(amount_to_remove) + " blocks from block group.")
 
-		var delete_list []uint32 = make([]uint32, amount_to_remove) // need to including deleting of mother node
+		var delete_list []uint32 = make([]uint32, amount_to_remove)
 		var delete_list_pos uint32 = 0
-		/* We have to delete from right to left to maintain the correctness of the offspring list, we need
+		/* We have to delete from right to left to maintain the correctness of the block group list. when reading, we need
 		 * to be able to always go from left to right until we get to a zero. If we delete from the left
 		 * we'll have to set a zero in the first position (for really complicated reasons) and then
-		 * there will be valid live offspring after that and that's an invalid offspring layout
+		 * there will be valid live blocks in the block group list after that and that's an invalid block group list layout
 		 * so we must delete from right to left. */
 		var rp int // must be int, because we're counting down to zero, and need to get to -1 to end loop
-		for rp = int(current_offspring_count - 1); rp >= int(offspring_nodes_required); rp-- {
-			var ret, resp = mother_node.Get_offspring_pos(uint32(rp))
+		for rp = int(current_block_group_count - 1); rp >= int(block_group_count_required); rp-- {
+			var ret, resp = entry.Get_block_group_pos(uint32(rp))
 			if ret != nil {
 				return ret
 			}
-			var offspring_value uint32 = *resp
-			if offspring_value == 0 {
+			var block_group_value uint32 = resp
+			if block_group_value == 0 {
 				break
 			}
-			delete_list[delete_list_pos] = offspring_value
+			delete_list[delete_list_pos] = block_group_value
 			delete_list_pos++
-			this.log.Debug("removing node: " + tools.Uint32tostring(offspring_value))
+			this.log.Debug("removing block group position ", rp, " block: ", tools.Uint32tostring(block_group_value))
 		}
 
 		/* Now go through the delete list individually deleting each item, updating the list if
-		 * something in the list got moved. also keep the mother node position up to date */
+		 * something in the list got moved. also you have to remember to keep the reverse lookup list up to date */
 
 		this.log.Debug("going to delete " + tools.Uint32tostring(delete_list_pos) + " items.")
 		var dp uint32
@@ -674,6 +719,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			if ret != nil {
 				return ret
 			}
+			//xxxzgot up to here
 
 			/* now update the remainder of the list if anything in it moved. we can do the whole list,
 			 * it doesn't hurt to update something that was already processed/deleted. */
@@ -753,13 +799,13 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	 * and write them. just the mother node is important to maintain, and we've already
 	 * loaded it. */
 
-	var num_parts uint32 = uint32(len(new_value)) / this.m_max_value_length
-	if len(new_value)%int(this.m_max_value_length) != 0 {
+	var num_parts uint32 = uint32(len(new_value)) / this.m_data_block_size
+	if len(new_value)%int(this.m_data_block_size) != 0 {
 		num_parts++
 	}
 
 	if num_parts == 0 {
-		return tools.Error(this.log, "error splitting data value by ", this.m_max_value_length, " bytes, new_value is empty.")
+		return tools.Error(this.log, "error splitting data value by ", this.m_data_block_size, " bytes, new_value is empty.")
 	}
 
 	var data_parts [][]byte = make([][]byte, num_parts)
@@ -767,11 +813,11 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	var counter uint32
 	var pos int = 0
 	for counter = 0; counter < num_parts; counter++ {
-		var end_of_data = tools.Minint(len(new_value[pos:]), int(this.m_max_value_length))
+		var end_of_data = tools.Minint(len(new_value[pos:]), int(this.m_data_block_size))
 
 		data_parts[counter] = new_value[pos : pos+end_of_data]
 
-		pos += int(this.m_max_value_length)
+		pos += int(this.m_data_block_size)
 	}
 
 	if num_parts != (offspring_nodes_required + 1) {
@@ -797,7 +843,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	var lp uint32
 	for lp = 0; lp < offspring_nodes_required; lp++ {
 		var offspring_node *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, this.m_default_key, data_parts[partpos],
-			this.m_max_key_length, this.m_max_value_length, 0) // offspring nodes have no offspring node array
+			this.m_max_key_length, this.m_data_block_size, 0) // offspring nodes have no offspring node array
 		partpos++
 		// none of the fields matter except the data and the parent. everything else should be zero.
 		offspring_node.Set_parent(mother_node_pos)
@@ -865,7 +911,7 @@ func (this *Slookup_i) update_or_insert_always(key string, new_value []byte, ins
 			this.log.Debug("this is a forced insert and there's already a key matching ", key, ", inserting a duplicate.")
 		}
 
-		var nn *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, key, make([]byte, 1), this.m_max_key_length, this.m_max_value_length, this.m_offspring_per_node)
+		var nn *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, key, make([]byte, 1), this.m_max_key_length, this.m_data_block_size, this.m_offspring_per_node)
 
 		// make room, and add new node at first free spot
 		var ret, iresp = this.m_storage.Allocate(1) // ask for one node for the mother node
@@ -985,7 +1031,7 @@ func (this *Slookup_i) fetch_stree_data(found_mother_node stree_v_node.Stree_nod
 	 * in the last offspring node, and that we don't find out until we read it in, so we can either size
 	 * to just the number of offspring nodes, or just max out completely, either way we have to resize so it
 	 * almost doesn't matter. we waste a bit more memory here, temporarily. */
-	var alldata *bytes.Buffer = bytes.NewBuffer(make([]byte, 0, this.m_max_value_length*(this.m_offspring_per_node+1)))
+	var alldata *bytes.Buffer = bytes.NewBuffer(make([]byte, 0, this.m_data_block_size*(this.m_offspring_per_node+1)))
 
 	// add the data in the mother node.
 	var node_data []byte = found_mother_node.Get_value()
