@@ -26,9 +26,10 @@ type Transaction_log_interface interface {
 
 	End_transaction() tools.Ret
 
-	Get_first_transaction_log_position() (tools.Ret, uint32)
+	// these are owned by slookup_i, not the backing store.
+	//Get_first_transaction_log_position() (tools.Ret, uint32)
 
-	Get_first_data_block_position() (tools.Ret, uint32)
+	// Get_first_data_block_position() (tools.Ret, uint32)
 
-	Get_free_position() (tools.Ret, uint32)
+	// Get_free_position() (tools.Ret, uint32)
 }
