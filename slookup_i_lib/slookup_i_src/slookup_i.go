@@ -37,7 +37,6 @@ import (
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
-	slookup_i_lib_header "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_src/Slookup_i_header"
 	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
@@ -64,7 +63,7 @@ type Slookup_i struct {
 		 same thing with making it smaller, we can shrink the block device and therefore the lookup table
 		 and just move the free_space-1 block to the n-1 position and so on. */
 
-	m_header slookup_i_lib_entry.Slookup_i_header
+	m_header Slookup_i_header
 
 	m_storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
 	m_transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
@@ -106,7 +105,7 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 	 * This is what the client will see as the "block size" which is the max data we can store in a client 'block'. */
 	// s.interface_lock   doesn't need to be initted
 	s.m_verify_slookup_i_entry_size = entry_size // so we can verify later
-	s.m_verify_slookup_i_data_block_size = max_value_length
+	s.m_verify_slookup_i_data_block_size = data_block_size
 	return &s
 }
 
@@ -233,6 +232,44 @@ func (this *Slookup_i) Get_transaction_log_block_count() (tools.Ret, uint32) {
 	return nil, 100
 }
 
+func (this *Slookup_i) Get_storable_data_blocks_count() (tools.Ret, uint32) {
+	/* This is the size of usable storage in blocks. as in how many data blocks
+	   can we store. This is the number of entries in the lookup table.
+	   it is the number of total actual blocks in the backing store, minus the size of the
+	   lookup table, minus the size of the transaction log.
+	   either that, or the user just tells us. :-) */
+	/* we calculate the total number of blocks we're going to need for the lookup table
+		   by including the space in the lookup table used by the lookup table blocks.
+		 	 we do this on purpose so that we can resize anything at any time in the future
+	 		 and not have to move entries around because the start position changed or anything
+			 like that. */
+	var ret tools.Ret
+	var total_blocks uint32
+	if ret, total_blocks = this.m_storage.Get_total_blocks(); ret != nil {
+		return ret, 0
+	}
+	var transaction_log_block_count uint32
+	if ret, transaction_log_block_count = this.Get_transaction_log_block_count(); ret != nil {
+		return ret, 0
+	}
+
+	var bytes_per_entry = this.m_entry_length
+	var data_block_size = this.m_data_block_size
+	var total_bytes_for_lookup_table uint64 = uint64(data_block_size) * uint64(bytes_per_entry)
+	var total_blocks_for_lookup_table = uint32(total_bytes_for_lookup_table / uint64(data_block_size))
+	if total_bytes_for_lookup_table%uint64(data_block_size) != 0 {
+		total_blocks_for_lookup_table += 1
+	}
+
+	var total_blocks_available_for_storage = total_blocks - LOOKUP_TABLE_START_BLOCK
+	total_blocks_available_for_storage -= TRANSACTION_LOG_START_PADDING_BLOCKS
+	total_blocks_available_for_storage -= transaction_log_block_count
+	total_blocks_available_for_storage -= DATA_BLOCKS_START_PADDING_BLOCKS
+
+	// and after all that, is how many blocks are left available to actually store data.
+	return nil, total_blocks_available_for_storage
+}
+
 /* In fact this is one of the mistakes I made in stree, the backing block store shouldn't have any understanding
 of what goes in those blocks, having the filestore know what offspring are was a mistake. the positional layout of
 the lookup table, the log and the data blocks is entirely a slookup_i thing, so here is where we actually figure out
@@ -249,11 +286,14 @@ func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) 
 	maybe that should be configurable too... */
 	var entry_size = this.Get_lookup_entry_size()
 	var ret tools.Ret
-	var number_of_blocks uint32
-	if ret, number_of_blocks = this.m_storage.Get_total_blocks(); ret != nil {
+	var number_of_data_blocks uint32
+	/* We can't use the number of total blocks in storage, because we have to use some of
+	those blocks for the lookup table and the transaction log. So we have to figure that out. */
+
+	if ret, number_of_data_blocks = this.Get_storable_data_blocks_count(); ret != nil {
 		return ret, 0
 	}
-	var bytes_in_lookup_table uint64 = uint64(number_of_blocks) * uint64(entry_size)
+	var bytes_in_lookup_table uint64 = uint64(number_of_data_blocks) * uint64(entry_size)
 	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(this.m_data_block_size)
 	if bytes_in_lookup_table%uint64(this.m_data_block_size) != 0 {
 		blocks_in_lookup_table += 1 // round up for the leftover unfilled last lookup table block
@@ -286,10 +326,8 @@ func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
 func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	/* for now, read the header block from the transaction log, deserialize it and return the free position */
 	// we can make a cache later.
-	var ret, pos = this.m_header.free_position
-	if ret != nil {
-		return ret, 0
-	}
+	// I guess the header is the cache.
+	var pos = this.m_header.M_free_position
 	return nil, pos
 }
 
@@ -299,10 +337,10 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
 	so we might have to concatenate. something we'll have to fix with goroutines someday. */
 	start_pos = block_num * this.Get_lookup_entry_size()
-	start_block = (start_pos / this.get_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK // lookup table starts at block 1
+	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK // lookup table starts at block 1
 
 	end_pos = start_pos + this.Get_lookup_entry_size()
-	end_block = (end_pos / this.get_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
+	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
 
 	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
 		return
@@ -322,7 +360,7 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	}
 
 	// get the position of this entry in this alldata, modulo works here too...
-	start_offset = start_pos - (start_block * this.get_block_size_in_bytes())
+	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
 	return
 }
 
@@ -2258,7 +2296,7 @@ func (this *Slookup_i) Get_total_blocks() (tools.Ret, uint32) {
 	if there are 10 blocks and there are 5 offspring/block_group_count
 	then the lookup table still only has 10 entries in it, even though there can be a max of
 	50 data blocks. */
-
+	xxxz
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 	return this.m_storage.Get_total_blocks()
