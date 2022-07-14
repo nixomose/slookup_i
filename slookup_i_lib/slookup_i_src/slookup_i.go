@@ -266,7 +266,12 @@ func (this *Slookup_i) Get_storable_data_blocks_count() (tools.Ret, uint32) {
 	total_blocks_available_for_storage -= transaction_log_block_count
 	total_blocks_available_for_storage -= DATA_BLOCKS_START_PADDING_BLOCKS
 
-	// and after all that, is how many blocks are left available to actually store data.
+	/* and after all that, is how many blocks are left available to actually store data.
+	the leading part of the lookup table holds entries for the lookup table which are not used
+	for data and are wasted, but, we can resize the block device. no offsets in the lookup
+	table for starts of any section change, because the first lookup table entry always
+	refers to the first block (which is the header) and the next 9 entries are
+	LOOKUP_TABLE_START_BLOCK padding, and so on. */
 	return nil, total_blocks_available_for_storage
 }
 
