@@ -222,6 +222,40 @@ func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	return this.m_entry_length
 }
 
+/* The counts.
+   There are 4 main storage areas that take up the blocks in the backing store:
+	 1) the header (1 block)
+	 2) the lookup table (however many blocks it takes to store an entry for every block in the backing store)
+	 3) the transaction log (haven't decided yet)
+	 4) the data blocks themselves (the rest of the blocks available)
+	 so here we provide the three functions that work out how many blocks each section
+	 takes up, and then there's three functions to work out the starting block
+	 for each section given the size of each section and padding in between them. */
+
+func (this *Slookup_i) Get_lookup_table_storage_block_count() (tools.Ret, uint32) {
+	/* The serialized lookup table entries are laid back to back, and take up however many
+	blocks they take up. The noteworthy bit is that the beginning of the lookup table contains entries that refer to blocks
+	taken up by the lookup table. so those entries will never be used, but they're place holders, because it is possible
+	to resize the backing store and therefore the whole slookup_i structure, so we keep everything nice and neat to make
+	that all easier.
+	so basically this function returns just the number of blocks that the entire lookup table takes to store. */
+
+	var entry_size = this.Get_lookup_entry_size()
+	var ret tools.Ret
+
+	var total_blocks uint32
+	if ret, total_blocks = this.m_storage.Get_total_blocks(); ret != nil {
+		return ret, 0
+	}
+	var bytes_in_lookup_table uint64 = uint64(total_blocks) * uint64(entry_size)
+	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(this.m_data_block_size)
+	if bytes_in_lookup_table%uint64(this.m_data_block_size) != 0 {
+		blocks_in_lookup_table += 1 // round up for the leftover unfilled last lookup table block
+	}
+	// we should cache this at some point
+	return nil, uint32(blocks_in_lookup_table)
+}
+
 /* the idea of using the transaction log for everything includes the header block because updating things like
 the free position will become part of a transaction. as such since we hit it a lot, we're going to cache
 it here so we don't actually read the block every single time we ask for it. it is sorta a storage thing
@@ -233,11 +267,21 @@ func (this *Slookup_i) Get_transaction_log_block_count() (tools.Ret, uint32) {
 }
 
 func (this *Slookup_i) Get_storable_data_blocks_count() (tools.Ret, uint32) {
-	/* This is the size of usable storage in blocks. as in how many data blocks
-	   can we store. This is the number of entries in the lookup table.
-	   it is the number of total actual blocks in the backing store, minus the size of the
-	   lookup table, minus the size of the transaction log.
-	   either that, or the user just tells us. :-) */
+	/* This is the size of usable storage in blocks for storing data. It's the remainder of the
+	     backing storage after you subtract the space needed for the lookup table and the transaction log
+			 and the padding, and the header.
+			 Remember, the lookup table is a linear map for the size of the block device, the data block storage
+			 is just a dumping ground in any order for the data pointed to by the lookup table.
+			 which means, I had it all wrong, the lookup table doesn't refer to the positional data in the backing store
+			 it refers to the position in the block device that is then used to look up where the data is in
+			 the data block area, which means you can easily over provision which is fine, but that also means
+			 we can't calculate the size of the lookup table, we have to be told how big the block device we're making
+			 a map for is.
+			 xxxz
+
+		   it is the number of total actual blocks in the backing store, minus the size of the
+		   lookup table, minus the size of the transaction log.
+		   either that, or the user just tells us. :-) */
 	/* we calculate the total number of blocks we're going to need for the lookup table
 		   by including the space in the lookup table used by the lookup table blocks.
 		 	 we do this on purpose so that we can resize anything at any time in the future
