@@ -68,12 +68,7 @@ type Slookup_i struct {
 	m_storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
 	m_transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
 
-	m_entry_length    uint32 // this is the (cached) serialized size of the entry given the number of blocks in a block group
-	m_data_block_size uint32 // this is the maximum size of the value in 1 storable block, multiple blocks make up a storable unit (a block group)
-	// which is different than max_value_length in slookup_i_entry.
-
-	/* How many elements in the offspring array for each node */
-	m_block_group_count uint32 // a.k.a. m_offspring_per_node
+	m_entry_length uint32 // this is the (cached) serialized size of the entry given the number of blocks in a block group
 
 	/* 12/26/2020 only one of anything in the interface can happen at once, so here's the lock for it. */
 	interface_lock sync.Mutex
@@ -217,8 +212,144 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 	fmt.Println("allocated blocks: ", allocated_blocks)
 }
 
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
+func (this *Slookup_i) Get_block_group_size() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size * this.m_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_data_block_size
+}
+
 func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
 	return this.m_entry_length
 }
 
@@ -240,13 +371,17 @@ func (this *Slookup_i) Get_lookup_table_storage_block_count() (tools.Ret, uint32
 	that all easier.
 	so basically this function returns just the number of blocks that the entire lookup table takes to store. */
 
+	// s= (1/(1+a))*n
+	// L = (a/(1+a))*n
+
 	var entry_size = this.Get_lookup_entry_size()
 	var ret tools.Ret
-
 	var total_blocks uint32
 	if ret, total_blocks = this.m_storage.Get_total_blocks(); ret != nil {
 		return ret, 0
 	}
+	var data_block_size = this.Get_data_block_size_in_bytes()
+
 	var bytes_in_lookup_table uint64 = uint64(total_blocks) * uint64(entry_size)
 	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(this.m_data_block_size)
 	if bytes_in_lookup_table%uint64(this.m_data_block_size) != 0 {
@@ -690,25 +825,6 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 			this.m_data_block_size, " length totaling ", (this.m_block_group_count)*this.m_data_block_size), nil
 	}
 	return nil, &nnodes
-}
-
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
 }
 
 func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
