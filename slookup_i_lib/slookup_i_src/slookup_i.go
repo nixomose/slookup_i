@@ -45,6 +45,8 @@ const LOOKUP_TABLE_START_BLOCK uint32 = 10             // make some room in case
 const TRANSACTION_LOG_START_PADDING_BLOCKS uint32 = 10 // more room, this is the number of blocks after the lookup table before the transaction log starts
 const DATA_BLOCKS_START_PADDING_BLOCKS uint32 = 10     // what a horrible name for this., this is the number of blocks after the transaction log, before the data blocks start.
 
+const SLOOKUP_I_MAGIC uint64 = 0x534C4F4F4B555049 // SLOOKUPI
+
 type Slookup_i struct {
 
 	/* this is the guts of the lookup table. it'll be a bit more refined since we worked out all the details in
@@ -68,7 +70,7 @@ type Slookup_i struct {
 	m_storage                 slookup_i_lib_interfaces.Slookup_i_backing_store_interface // direct access to the backing store for init and setup
 	m_transaction_log_storage slookup_i_lib_interfaces.Transaction_log_interface         // the backing store mechanism for writing stree_v data
 
-	m_entry_length uint32 // this is the (cached) serialized size of the entry given the number of blocks in a block group
+	m_entry_length_cache uint32 // this is the (cached) serialized size of the entry given the number of blocks in a block group
 
 	/* 12/26/2020 only one of anything in the interface can happen at once, so here's the lock for it. */
 	interface_lock sync.Mutex
@@ -90,6 +92,7 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 
 	var s Slookup_i
 	s.log = l
+	s.m_header = this.init_header()
 	/* storage gives you direct access to the backing store so you can init and such */
 	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
@@ -102,6 +105,21 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 	s.m_verify_slookup_i_entry_size = entry_size // so we can verify later
 	s.m_verify_slookup_i_data_block_size = data_block_size
 	return &s
+}
+
+func (this *Slookup_i) init_header() Slookup_i_header {
+	var h Slookup_i_header = Slookup_i_header{}
+	h.M_magic = SLOOKUP_I_MAGIC
+	h.M_data_block_size = data_block_size
+	h.M_lookup_table_entry_count = lookup_table_entry_count
+	h.M_total_blocks = total_blocks
+	h.M_block_group_count = block_group_count
+	h.M_lookup_table_start_block = this.Get_lookup_table_start_block
+	h.M_transaction_log_start_block
+	h.M_data_block_start_block
+	h.M_free_position = h.M_data_block_start_block
+	h.M_alignment = alignment
+	h.M_dirty = false
 }
 
 func (this *Slookup_i) Get_logger() *tools.Nixomosetools_logger {
@@ -212,146 +230,7 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 	fmt.Println("allocated blocks: ", allocated_blocks)
 }
 
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_block_group_size() uint32 {
-	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
-	 	 * as in, it is the value_size * block_group_count, not just value_size.
-		 * this is used to report to the user how much space is available to store, so it should be used in the
-		 * used/total block count * this number to denote the number of actual storable bytes. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size * this.m_block_group_count
-}
-
-func (this *Slookup_i) Get_data_block_size() uint32 {
-	/* this returns the number of bytes in one data block. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_data_block_size
-}
-
-func (this *Slookup_i) Get_lookup_entry_size() uint32 {
-	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_entry_length
-}
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 /* The counts.
    There are 4 main storage areas that take up the blocks in the backing store:
@@ -361,9 +240,58 @@ func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	 4) the data blocks themselves (the rest of the blocks available)
 	 so here we provide the three functions that work out how many blocks each section
 	 takes up, and then there's three functions to work out the starting block
-	 for each section given the size of each section and padding in between them. */
+	 for each section given the size of each section and padding in between them.
+	 Keep in mind you can overprovision, so just because you allocate space for 1000
+	 lookup table entries, that doesn't mean you need 1000 data blocks afterwards.
+	 Having more is wasteful/useless because they will never get used, having less
+	 is what compression is all about. */
 
-func (this *Slookup_i) Get_lookup_table_storage_block_count() (tools.Ret, uint32) {
+func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
+	/* this returns the number of bytes of user storable data in a lookup entry, it is not the size of the data block.
+	 	 * as in, it is the value_size * block_group_count, not just value_size.
+		 * this is used to report to the user how much space is available to store, so it should be used in the
+		 * used/total block count * this number to denote the number of actual storable bytes. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_header.M_data_block_size * this.m_header.M_block_group_count
+}
+
+func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
+	/* this returns the number of bytes in one data block. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_header.M_data_block_size
+}
+
+func (this *Slookup_i) Get_lookup_entry_size() uint32 {
+	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_entry_length_cache
+}
+
+func (this *Slookup_i) Get_total_blocks_count() uint32 {
+	/* return the total number of blocks in the backing store.
+	   this isn't the number of usable data storage blocks, it's the entire thing. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_header.M_total_blocks
+}
+
+func (this *Slookup_i) Get_lookup_table_entry_count() uint32 {
+	/* return the total number of entries in the lookup table, which is the
+	total number of blocks * block_group_count we can store. */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_header.M_lookup_table_entry_count
+}
+
+func (this *Slookup_i) Get_lookup_table_storage_block_count() uint32 {
 	/* The serialized lookup table entries are laid back to back, and take up however many
 	blocks they take up. The noteworthy bit is that the beginning of the lookup table contains entries that refer to blocks
 	taken up by the lookup table. so those entries will never be used, but they're place holders, because it is possible
@@ -371,24 +299,17 @@ func (this *Slookup_i) Get_lookup_table_storage_block_count() (tools.Ret, uint32
 	that all easier.
 	so basically this function returns just the number of blocks that the entire lookup table takes to store. */
 
-	// s= (1/(1+a))*n
-	// L = (a/(1+a))*n
-
 	var entry_size = this.Get_lookup_entry_size()
-	var ret tools.Ret
-	var total_blocks uint32
-	if ret, total_blocks = this.m_storage.Get_total_blocks(); ret != nil {
-		return ret, 0
-	}
+	var lookup_table_entry_count uint32 = this.Get_lookup_table_entry_count()
 	var data_block_size = this.Get_data_block_size_in_bytes()
 
-	var bytes_in_lookup_table uint64 = uint64(total_blocks) * uint64(entry_size)
-	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(this.m_data_block_size)
-	if bytes_in_lookup_table%uint64(this.m_data_block_size) != 0 {
+	var bytes_in_lookup_table uint64 = uint64(lookup_table_entry_count) * uint64(entry_size)
+	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(data_block_size)
+	if bytes_in_lookup_table%uint64(data_block_size) != 0 {
 		blocks_in_lookup_table += 1 // round up for the leftover unfilled last lookup table block
 	}
 	// we should cache this at some point
-	return nil, uint32(blocks_in_lookup_table)
+	return uint32(blocks_in_lookup_table)
 }
 
 /* the idea of using the transaction log for everything includes the header block because updating things like
@@ -396,61 +317,46 @@ the free position will become part of a transaction. as such since we hit it a l
 it here so we don't actually read the block every single time we ask for it. it is sorta a storage thing
 but it is also sorta a slookup_i thing, but it's more a slookup_i thing, so we'll put it here. */
 
-func (this *Slookup_i) Get_transaction_log_block_count() (tools.Ret, uint32) {
+func (this *Slookup_i) Get_transaction_log_block_count() uint32 {
 	/* I have no idea at the moment. */
-	return nil, 100
+	return 100
 }
 
 func (this *Slookup_i) Get_storable_data_blocks_count() (tools.Ret, uint32) {
 	/* This is the size of usable storage in blocks for storing data. It's the remainder of the
 	     backing storage after you subtract the space needed for the lookup table and the transaction log
 			 and the padding, and the header.
-			 Remember, the lookup table is a linear map for the size of the block device, the data block storage
-			 is just a dumping ground in any order for the data pointed to by the lookup table.
+			 Remember, the lookup table is a linear map for the size of the block device that the caller specified
+			 (not the total number of available blocks)
+			 the data block storage is just a dumping ground in any order for the data pointed to by the lookup table.
 			 which means, I had it all wrong, the lookup table doesn't refer to the positional data in the backing store
 			 it refers to the position in the block device that is then used to look up where the data is in
 			 the data block area, which means you can easily over provision which is fine, but that also means
 			 we can't calculate the size of the lookup table, we have to be told how big the block device we're making
 			 a map for is.
-			 xxxz
+			 And that's the point. The user must specify both the amount of space the block device is defined to be able to
+			 store, AND the actual amount of storage (in data blocks) that you want to use to store that data, which can
+			 be less than how much you say you can store, because... compression.
 
-		   it is the number of total actual blocks in the backing store, minus the size of the
-		   lookup table, minus the size of the transaction log.
-		   either that, or the user just tells us. :-) */
-	/* we calculate the total number of blocks we're going to need for the lookup table
-		   by including the space in the lookup table used by the lookup table blocks.
-		 	 we do this on purpose so that we can resize anything at any time in the future
-	 		 and not have to move entries around because the start position changed or anything
-			 like that. */
+		   So this is the number of total actual blocks in the backing store, minus the size of the
+		   lookup table, minus the size of the transaction log. */
+
 	var ret tools.Ret
 	var total_blocks uint32
 	if ret, total_blocks = this.m_storage.Get_total_blocks(); ret != nil {
 		return ret, 0
 	}
-	var transaction_log_block_count uint32
-	if ret, transaction_log_block_count = this.Get_transaction_log_block_count(); ret != nil {
-		return ret, 0
-	}
+	var transaction_log_block_count uint32 = this.Get_transaction_log_block_count()
+	var lookup_table_storage_block_count uint32 = this.Get_lookup_table_storage_block_count()
 
-	var bytes_per_entry = this.m_entry_length
-	var data_block_size = this.m_data_block_size
-	var total_bytes_for_lookup_table uint64 = uint64(data_block_size) * uint64(bytes_per_entry)
-	var total_blocks_for_lookup_table = uint32(total_bytes_for_lookup_table / uint64(data_block_size))
-	if total_bytes_for_lookup_table%uint64(data_block_size) != 0 {
-		total_blocks_for_lookup_table += 1
-	}
+	var total_blocks_available_for_storage = total_blocks - LOOKUP_TABLE_START_BLOCK // this skips the header and padding
 
-	var total_blocks_available_for_storage = total_blocks - LOOKUP_TABLE_START_BLOCK
+	total_blocks_available_for_storage -= lookup_table_storage_block_count
 	total_blocks_available_for_storage -= TRANSACTION_LOG_START_PADDING_BLOCKS
 	total_blocks_available_for_storage -= transaction_log_block_count
 	total_blocks_available_for_storage -= DATA_BLOCKS_START_PADDING_BLOCKS
 
-	/* and after all that, is how many blocks are left available to actually store data.
-	the leading part of the lookup table holds entries for the lookup table which are not used
-	for data and are wasted, but, we can resize the block device. no offsets in the lookup
-	table for starts of any section change, because the first lookup table entry always
-	refers to the first block (which is the header) and the next 9 entries are
-	LOOKUP_TABLE_START_BLOCK padding, and so on. */
+	/* and after all that, is how many blocks are left available to actually store data. */
 	return nil, total_blocks_available_for_storage
 }
 
@@ -463,28 +369,12 @@ func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) 
 	/* There are/can be three things in the file. the lookup table always comes first.
 	   then there's a pile of blocks for the transaction log (or zero if it is not stored here)
 		 and then the actual data blocks. this returns the absolute block position of the first block
-		 holding transaction log information, after the end of the lookup table. */
+		 holding transaction log information, after the end of the lookup table (and padding). */
 	// we can make a cache later.
-	/* The transaction log starts at the first block after the last block used (partial or full) of the lookup
-	table, so let's calculate the start of the lookup table, and realize, that the lookup table starts at block 1.
-	maybe that should be configurable too... */
-	var entry_size = this.Get_lookup_entry_size()
-	var ret tools.Ret
-	var number_of_data_blocks uint32
-	/* We can't use the number of total blocks in storage, because we have to use some of
-	those blocks for the lookup table and the transaction log. So we have to figure that out. */
 
-	if ret, number_of_data_blocks = this.Get_storable_data_blocks_count(); ret != nil {
-		return ret, 0
-	}
-	var bytes_in_lookup_table uint64 = uint64(number_of_data_blocks) * uint64(entry_size)
-	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(this.m_data_block_size)
-	if bytes_in_lookup_table%uint64(this.m_data_block_size) != 0 {
-		blocks_in_lookup_table += 1 // round up for the leftover unfilled last lookup table block
-	}
-	// so the first block of the transaction log is the one after that one, plus some padding.
-	var first_transaction_log_block = LOOKUP_TABLE_START_BLOCK + uint32(blocks_in_lookup_table) + TRANSACTION_LOG_START_PADDING_BLOCKS
-
+	var lookup_table_storage_block_count = this.Get_lookup_table_storage_block_count()
+	var first_transaction_log_block = LOOKUP_TABLE_START_BLOCK + uint32(lookup_table_storage_block_count) +
+		TRANSACTION_LOG_START_PADDING_BLOCKS
 	// we should cache this at some point
 	return nil, first_transaction_log_block
 }
@@ -497,12 +387,10 @@ func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
 		return ret, 0
 	}
 	var transaction_log_block_count uint32
-	if ret, transaction_log_block_count = this.Get_transaction_log_block_count(); ret != nil {
-		return ret, 0
-	}
+	transaction_log_block_count = this.Get_transaction_log_block_count()
 
-	var data_blocks_start_block uint32 = transaction_log_start_block + transaction_log_block_count
-	data_blocks_start_block += DATA_BLOCKS_START_PADDING_BLOCKS
+	var data_blocks_start_block uint32 = transaction_log_start_block + transaction_log_block_count +
+		DATA_BLOCKS_START_PADDING_BLOCKS
 	// remember to make a cache later.
 	return nil, data_blocks_start_block
 }
@@ -514,7 +402,7 @@ func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	var pos = this.m_header.M_free_position
 	return nil, pos
 }
-
+xxxz
 func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
 	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
 
@@ -592,8 +480,8 @@ func (this *Slookup_i) check_lookup_table_entry_block_limits(block_num uint32) t
 	if ret != nil {
 		return ret
 	}
-	blocks = blocks / this.m_entry_length
-	if blocks%this.m_entry_length != 0 {
+	blocks = blocks / this.m_entry_length_cache
+	if blocks%this.m_entry_length_cache != 0 {
 		blocks++ // this last block is not filled to the end with entries.
 	}
 
