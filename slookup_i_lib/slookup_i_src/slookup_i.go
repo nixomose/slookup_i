@@ -267,7 +267,7 @@ func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
 
 func (this *Slookup_i) Get_lookup_entry_size() uint32 {
 	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
-
+	// this never changes why are we putting a lock around it
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 	return this.m_entry_length_cache
@@ -285,7 +285,7 @@ func (this *Slookup_i) Get_total_blocks_count() uint32 {
 func (this *Slookup_i) Get_lookup_table_entry_count() uint32 {
 	/* return the total number of entries in the lookup table, which is the
 	total number of blocks * block_group_count we can store. */
-
+	//this never changes why lock?
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 	return this.m_header.M_lookup_table_entry_count
@@ -365,7 +365,11 @@ of what goes in those blocks, having the filestore know what offspring are was a
 the lookup table, the log and the data blocks is entirely a slookup_i thing, so here is where we actually figure out
 what the locations of the three sections are, in terms of their block locations. */
 
-func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) {
+func (this *Slookup_i) Get_first_lookup_table_position() uint32 {
+	return LOOKUP_TABLE_START_BLOCK
+}
+
+func (this *Slookup_i) Get_first_transaction_log_position() uint32 {
 	/* There are/can be three things in the file. the lookup table always comes first.
 	   then there's a pile of blocks for the transaction log (or zero if it is not stored here)
 		 and then the actual data blocks. this returns the absolute block position of the first block
@@ -376,10 +380,10 @@ func (this *Slookup_i) Get_first_transaction_log_position() (tools.Ret, uint32) 
 	var first_transaction_log_block = LOOKUP_TABLE_START_BLOCK + uint32(lookup_table_storage_block_count) +
 		TRANSACTION_LOG_START_PADDING_BLOCKS
 	// we should cache this at some point
-	return nil, first_transaction_log_block
+	return first_transaction_log_block
 }
 
-func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
+func (this *Slookup_i) Get_first_data_block_position() uint32 {
 	/* this is the start of the transaction log block position plus the size of the transaction log plus some padding. */
 	var ret tools.Ret
 	var transaction_log_start_block uint32
@@ -392,7 +396,7 @@ func (this *Slookup_i) Get_first_data_block_position() (tools.Ret, uint32) {
 	var data_blocks_start_block uint32 = transaction_log_start_block + transaction_log_block_count +
 		DATA_BLOCKS_START_PADDING_BLOCKS
 	// remember to make a cache later.
-	return nil, data_blocks_start_block
+	return data_blocks_start_block
 }
 
 func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
@@ -402,14 +406,14 @@ func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	var pos = this.m_header.M_free_position
 	return nil, pos
 }
-xxxz
+
 func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
 	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
 
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
 	so we might have to concatenate. something we'll have to fix with goroutines someday. */
 	start_pos = block_num * this.Get_lookup_entry_size()
-	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK // lookup table starts at block 1
+	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
 
 	end_pos = start_pos + this.Get_lookup_entry_size()
 	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
@@ -420,11 +424,12 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
 		return
 	}
+	// we could also check the check_lookup_table_entry_block_limits() but it would amount to the same thing
 
 	*alldata = make([]byte, 0)
 	for lp := start_block; lp < (end_block + 1); lp++ {
 		var data *[]byte
-		ret, data = this.m_transaction_log_storage.Read_block(lp)
+		ret, data = this.m_transaction_log_storage.Read_block(lp) // xxxz go routine
 		if ret != nil {
 			return
 		}
@@ -436,33 +441,30 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	return
 }
 
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+// the limits checkers
+
 func (this *Slookup_i) check_lookup_table_limits(block_num uint32) tools.Ret {
 	/* So there are three check block limits functions.
 	   1) this one, the simplest, just make sure that block_num is a valid block
 	      given the number of blocks that can be stored in this block device.
-	 			As in, if there are 10 blocks (and n blocks in the block group), we make sure block_num is >= 1 and < 10
+	 			As in, if there are 10 blocks (and n blocks in the block group), we make sure block_num is >= 0 and < 10
 	 	 2) the second one is a bit less obvious, when we're reading or writing actual
 	      lookup table blocks when we update a lookup table entry, we have to make sure
 	 			that the block we're updating exists within the bounds of the blocks that comprise
 	 			the lookup table.
 		 3) the third one is just to check that the data block being checked exists within
-	      the range of blocks (absolute from the start of the entire set of storage blocks).
-	 			so if there are 10 blocks starting at block 3, make sure block_num >= 3  and < 13.
+	      the range of blocks (absolute from the start of the entire set of data storage blocks).
+	 			so if there are 10 data blocks starting at block 3, make sure block_num >= 3  and < 13.
+				data block references are absolute from the start of the backing block storage
 	 	 4) I guess we need a version of 1 and 2 for the transaction log too... */
 
-	// this is function #1
+	// this is function #1, check the block num for the number of blocks the user specified as the size of the block device,
 
-	if block_num == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to operate on block zero.")
-	}
-
-	var ret, total_blocks = this.Get_total_blocks()
-	if ret != nil {
-		return ret
-	}
-	if block_num > total_blocks {
+	var lookup_table_entry_count uint32 = this.Get_lookup_table_entry_count()
+	if block_num > lookup_table_entry_count {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a block entry beyond the end of the lookup table: ",
-			"block_num: ", block_num, " total blocks: ", total_blocks)
+			"block_num: ", block_num, " total blocks: ", lookup_table_entry_count)
 	}
 	return nil
 }
@@ -476,23 +478,18 @@ func (this *Slookup_i) check_lookup_table_entry_block_limits(block_num uint32) t
 
 	// first figure out how many blocks are allocated for the lookup table.
 
-	var ret, blocks = this.Get_total_blocks()
-	if ret != nil {
-		return ret
-	}
-	blocks = blocks / this.m_entry_length_cache
-	if blocks%this.m_entry_length_cache != 0 {
-		blocks++ // this last block is not filled to the end with entries.
-	}
+	var start_block = this.Get_first_lookup_table_position()
+	var count = this.Get_lookup_table_entry_count()
 
-	if block_num == 0 {
-		return tools.Error(this.log, "sanity failure, somebody is trying to operate on block zero.")
+	if block_num < start_block {
+		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a block: ", block_num, " before the start ",
+			"of the lookup table block: ", start_block)
 	}
-	var lookup_table_end_block = LOOKUP_TABLE_START_BLOCK + blocks
+	var lookup_table_end_block = start_block + count
 
-	if block_num < LOOKUP_TABLE_START_BLOCK {
+	if block_num < start_block {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a lookup table entry block before the start ",
-			"of the lookup table: block_num: ", block_num, " lookup table start block: ", LOOKUP_TABLE_START_BLOCK)
+			"of the lookup table: block_num: ", block_num, " lookup table start block: ", start_block)
 	}
 	if block_num > lookup_table_end_block {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a lookup table entry block past the end ",
@@ -507,29 +504,21 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 	for this block device.
 	keep in mind, that if there are 10 blocks and there are 5 offspring/block_group_count
 	then there are 50 total data_blocks, but the starting position, isn't zero, it's the first block after
-	the end of the transaction log */
+	the end of the transaction log plus padding */
 
 	// this is function #3
 
 	if data_block_num == 0 {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block at block zero.")
 	}
-	var ret, first_data_block_position = this.Get_first_data_block_position()
-	if ret != nil {
-		return ret
-	}
+	var first_data_block_position = this.Get_first_data_block_position()
 	if data_block_num < first_data_block_position {
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block position: ", data_block_num,
 			" which is before the first data block location: ", first_data_block_position)
 	}
 
 	var last_possible_data_block_position uint32
-	ret, last_possible_data_block_position = this.Get_total_blocks()
-	if ret != nil {
-		return ret
-	}
-	last_possible_data_block_position *= this.m_block_group_count
-	last_possible_data_block_position += first_data_block_position
+	last_possible_data_block_position = this.Get_total_blocks()
 
 	if data_block_num > last_possible_data_block_position { // check for off by one here.
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block position: ", data_block_num,
@@ -537,7 +526,7 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 	}
 	return nil
 }
-
+xxxxz got up to here
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
 	/* read only the lookup entry for a block num.
 	this function can't read transaction log blocks, or data blocks. */
@@ -2344,15 +2333,14 @@ func (this *Slookup_i) Get_used_blocks() (tools.Ret, uint32) {
 	return this.Get_free_position()
 }
 
-func (this *Slookup_i) Get_total_blocks() (tools.Ret, uint32) {
-	/* this is the number of block_groups/slookup_i_entry structs in the lookup table.
-	if there are 10 blocks and there are 5 offspring/block_group_count
-	then the lookup table still only has 10 entries in it, even though there can be a max of
-	50 data blocks. */
-	xxxz
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-	return this.m_storage.Get_total_blocks()
+func (this *Slookup_i) Get_total_blocks() uint32 {
+	/* this is the total number of blocks in the backing store.
+	   if there are 500 blocks in the store, block 0 is the header, 10 is the start of
+		 the lookup table, 80 is the start of the transaction log, 100 is the start
+		 of the data blocks, 500 is the end of the data blocks, then
+		 we return 500 because there are a total of 500 data blocks of storable space. */
+
+	return this.m_header.M_total_blocks
 }
 
 // func (s *Stree_v) get_max_key_length() uint32 {
