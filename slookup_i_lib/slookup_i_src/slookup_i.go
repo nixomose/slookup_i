@@ -265,7 +265,7 @@ func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
 	return this.m_header.M_data_block_size
 }
 
-func (this *Slookup_i) Get_lookup_entry_size() uint32 {
+func (this *Slookup_i) Get_lookup_entry_size_in_bytes() uint32 {
 	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
 	// this never changes why are we putting a lock around it
 	this.interface_lock.Lock()
@@ -412,11 +412,11 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
 	so we might have to concatenate. something we'll have to fix with goroutines someday. */
-	start_pos = block_num * this.Get_lookup_entry_size()
-	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
+	start_pos = block_num * this.Get_lookup_entry_size_in_bytes()
+	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_position()
 
-	end_pos = start_pos + this.Get_lookup_entry_size()
-	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + LOOKUP_TABLE_START_BLOCK
+	end_pos = start_pos + this.Get_lookup_entry_size_in_bytes()
+	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_position()
 
 	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
 		return
@@ -424,16 +424,44 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
 		return
 	}
-	// we could also check the check_lookup_table_entry_block_limits() but it would amount to the same thing
 
-	*alldata = make([]byte, 0)
+	var number_of_blocks = end_block - start_block + 1
+
+	var rets = make(chan tools.Ret)
+	var alldata_lock sync.Mutex
+
+	*alldata = make([]byte, number_of_blocks*this.Get_data_block_size_in_bytes())
+
 	for lp := start_block; lp < (end_block + 1); lp++ {
-		var data *[]byte
-		ret, data = this.m_transaction_log_storage.Read_block(lp) // xxxz go routine
-		if ret != nil {
-			return
+		var destposstart = lp * this.Get_data_block_size_in_bytes()
+		var destposend = destposstart + this.Get_data_block_size_in_bytes()
+		go func(lpin uint32, destposstart uint32, destposend uint32) {
+			var data *[]byte
+			ret, data = this.m_transaction_log_storage.Read_block(lpin)
+			if ret == nil {
+				// copy the data into the correct place in the alldata array
+				alldata_lock.Lock()
+				var copied = copy((*alldata)[destposstart:destposend], *data)
+				if copied != len(*data) {
+					rets <- tools.Error(this.log, "didn't get all the data from an entry block read, expected: ", data, " got: ", copied)
+					alldata_lock.Unlock()
+					return
+				}
+				alldata_lock.Unlock()
+			}
+
+			rets <- ret
+		}(lp, destposstart, destposend)
+
+		var final_ret tools.Ret = nil
+		for wait := 0; wait < int(end_block-start_block+1); wait++ {
+			ret = <-rets
+			if ret != nil {
+				final_ret = ret
+			}
 		}
-		*alldata = append(*alldata, *data...)
+		// alldata should be filled correctly if all went well
+		ret = final_ret
 	}
 
 	// get the position of this entry in this alldata, modulo works here too...
@@ -526,7 +554,7 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 	}
 	return nil
 }
-xxxxz got up to here
+
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
 	/* read only the lookup entry for a block num.
 	this function can't read transaction log blocks, or data blocks. */
