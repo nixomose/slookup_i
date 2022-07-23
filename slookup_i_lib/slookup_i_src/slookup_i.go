@@ -115,8 +115,8 @@ func (this *Slookup_i) init_header() Slookup_i_header {
 	h.M_total_blocks = total_blocks
 	h.M_block_group_count = block_group_count
 	h.M_lookup_table_start_block = this.Get_lookup_table_start_block
-	h.M_transaction_log_start_block
-	h.M_data_block_start_block
+	h.M_transaction_log_start_block =
+		h.M_data_block_start_block
 	h.M_free_position = h.M_data_block_start_block
 	h.M_alignment = alignment
 	h.M_dirty = false
@@ -425,44 +425,49 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 		return
 	}
 
-	var number_of_blocks = end_block - start_block + 1
-
-	var rets = make(chan tools.Ret)
-	var alldata_lock sync.Mutex
-
-	*alldata = make([]byte, number_of_blocks*this.Get_data_block_size_in_bytes())
-
-	for lp := start_block; lp < (end_block + 1); lp++ {
-		var destposstart = lp * this.Get_data_block_size_in_bytes()
-		var destposend = destposstart + this.Get_data_block_size_in_bytes()
-		go func(lpin uint32, destposstart uint32, destposend uint32) {
-			var data *[]byte
-			ret, data = this.m_transaction_log_storage.Read_block(lpin)
-			if ret == nil {
-				// copy the data into the correct place in the alldata array
-				alldata_lock.Lock()
-				var copied = copy((*alldata)[destposstart:destposend], *data)
-				if copied != len(*data) {
-					rets <- tools.Error(this.log, "didn't get all the data from an entry block read, expected: ", data, " got: ", copied)
-					alldata_lock.Unlock()
-					return
-				}
-				alldata_lock.Unlock()
-			}
-
-			rets <- ret
-		}(lp, destposstart, destposend)
-
-		var final_ret tools.Ret = nil
-		for wait := 0; wait < int(end_block-start_block+1); wait++ {
-			ret = <-rets
-			if ret != nil {
-				final_ret = ret
-			}
-		}
-		// alldata should be filled correctly if all went well
-		ret = final_ret
+	if ret = this.m_transaction_log_storage.Read_block_range(); ret != nil {
+		return ret
 	}
+
+	// this is all in tlog now.
+	// var number_of_blocks = end_block - start_block + 1
+
+	// var rets = make(chan tools.Ret)
+	// var alldata_lock sync.Mutex
+
+	// *alldata = make([]byte, number_of_blocks*this.Get_data_block_size_in_bytes())
+
+	// for lp := start_block; lp < (end_block + 1); lp++ {
+	// 	var destposstart = lp * this.Get_data_block_size_in_bytes()
+	// 	var destposend = destposstart + this.Get_data_block_size_in_bytes()
+	// 	go func(lpin uint32, destposstart uint32, destposend uint32) {
+	// 		var data *[]byte
+	// 		ret, data = this.m_transaction_log_storage.Read_block(lpin)
+	// 		if ret == nil {
+	// 			// copy the data into the correct place in the alldata array
+	// 			alldata_lock.Lock()
+	// 			var copied = copy((*alldata)[destposstart:destposend], *data)
+	// 			if copied != len(*data) {
+	// 				rets <- tools.Error(this.log, "didn't get all the data from an entry block read, expected: ", data, " got: ", copied)
+	// 				alldata_lock.Unlock()
+	// 				return
+	// 			}
+	// 			alldata_lock.Unlock()
+	// 		}
+
+	// 		rets <- ret
+	// 	}(lp, destposstart, destposend)
+
+	// 	var final_ret tools.Ret = nil
+	// 	for wait := 0; wait < int(end_block-start_block+1); wait++ {
+	// 		ret = <-rets
+	// 		if ret != nil {
+	// 			final_ret = ret
+	// 		}
+	// 	}
+	// 	// alldata should be filled correctly if all went well
+	// 	ret = final_ret
+	// }
 
 	// get the position of this entry in this alldata, modulo works here too...
 	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
