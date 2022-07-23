@@ -165,6 +165,40 @@ func (this *Tlog) Write_block(block_num uint32, n *[]byte) tools.Ret {
 	return tools.Error(this.log, "not implemented yet")
 }
 
+func (this *Tlog) write_from_buffer(rets chan<- tools.Ret, block_num uint32, destposstart uint32, destposend uint32,
+	alldata_lock *sync.Mutex, alldata *[]byte) {
+	var data []byte = (*alldata)[destposstart:destposend]
+	var ret tools.Ret
+	ret = this.Write_block(block_num, &data)
+	alldata_lock.Unlock()
+	rets <- ret
+}
+
+func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32, alldata *[]byte) tools.Ret {
+	/* call write single block in parallel getting the data from slices of alldata. */
+	// end_block is not inclusive
+
+	var rets = make(chan tools.Ret)
+	var alldata_lock sync.Mutex
+
+	for lp := block_num_start; lp < block_num_end; lp++ {
+		var destposstart = lp * this.m_data_block_size_in_bytes
+		var destposend = destposstart + this.m_data_block_size_in_bytes
+
+		go this.write_from_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+	}
+
+	// wait for them all to come back.
+	var ret tools.Ret = nil
+	for wait := 0; wait < int(block_num_end-block_num_start); wait++ {
+		var ret2 = <-rets
+		if ret2 != nil {
+			ret = ret2
+		}
+	}
+	return ret
+}
+
 func (this *Tlog) End_transaction() tools.Ret {
 	return tools.Error(this.log, "not implemented yet")
 }

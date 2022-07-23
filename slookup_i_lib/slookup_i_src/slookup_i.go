@@ -583,6 +583,9 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	var _, _, _, _, start_offset uint32
 	var alldata *[]byte
 	ret, _, _, _, _, start_offset, alldata = this.internal_lookup_entry_blocks_load(block_num)
+	if ret != nil {
+		return ret, nil
+	}
 	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size_in_bytes()]
 	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, block_num,
 		this.Get_data_block_size_in_bytes(), this.Get_block_group_count())
@@ -590,11 +593,54 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	return ret, entry
 }
 
+func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
+	/* Store this lookup entry at this block num position in the lookup table. this will require a read update
+	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
+	we run everything through the transaction logger because this is where it counts. */
+
+	/* since we read update write we have to make sure we don't do this twice at one time
+	   so we have to lock this entire event */
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+
+	var ret = this.check_lookup_table_limits(block_num)
+	if ret != nil {
+		return ret
+	}
+
+	var _, start_block, _, end_block, start_offset uint32
+	var alldata *[]byte
+	ret, _, start_block, _, end_block, start_offset, alldata = this.internal_lookup_entry_blocks_load(block_num)
+	if ret != nil {
+		return ret
+	}
+	// get the entry in byte form
+	var entrydata *[]byte
+	ret, entrydata = entry.Serialize()
+	if ret != nil {
+		return ret
+	}
+	// and write it over the entry in the block where the entry lives.
+	var end_offset = start_offset + this.Get_lookup_entry_size_in_bytes()
+	var copied int = copy((*alldata)[int(start_offset):end_offset], (*entrydata)[:])
+	if copied != int(this.Get_lookup_entry_size_in_bytes()) {
+		return tools.Error(this.log, "lookup_entry_store failed to update the block while copying the entry data into it. ",
+			"expected to copy: ", this.Get_lookup_entry_size_in_bytes(), " only copied ", copied)
+	}
+
+	/* now we have to write the block(s) back */
+	ret = this.m_transaction_log_storage.Write_block_range(start_block, end_block, alldata)
+	if ret != nil {
+		return ret
+	}
+
+	return nil
+}
+
 func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entry) (tools.Ret, *[]byte) {
 	/* given an entry, go get all of the members in the block group and lay them out in a byte array
 	   and return it, similar to tlog.read_block_range except we're getting random blocks. */
 	var ret tools.Ret
-	var _, _, _, _, start_offset uint32
 	var alldata *[]byte
 
 	var actual_count = entry.Get_block_group_length()
@@ -615,120 +661,70 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	return nil, alldata
 }
 
-func (this *Slookup_i) internal_data_block_load_list_position(entry *slookup_i_lib_entry.Slookup_i_entry,
-	list_position uint32) (tools.Ret, *[]byte) {
-	/* given a lookup table entry, and the array position in the block_group list,
-	load the data the entry refers to and return it. we can't store it in entry.value, because we're not getting the
-	whole value, we're only getting one block in the block_group. this just raw reads the data block from the correct location.
-	All data block locations are relative to the beginning of the block device, not the
-	start position of the data after the lookup table (actually after transaction log). The reason is we may resize the
-	lookup table someday and we don't want the blocks to move when the start-of-data block
-	moves. */
+// func (this *Slookup_i) internal_data_block_load_list_position(entry *slookup_i_lib_entry.Slookup_i_entry,
+// 	list_position uint32) (tools.Ret, *[]byte) {
+// 	/* given a lookup table entry, and the array position in the block_group list,
+// 	load the data the entry refers to and return it. we can't store it in entry.value, because we're not getting the
+// 	whole value, we're only getting one block in the block_group. this just raw reads the data block from the correct location.
+// 	All data block locations are relative to the beginning of the block device, not the
+// 	start position of the data after the lookup table (actually after transaction log). The reason is we may resize the
+// 	lookup table someday and we don't want the blocks to move when the start-of-data block
+// 	moves. */
 
-	if entry == nil {
-		return tools.Error(this.log, "sanity failure, Lookup_entry_load got nil entry."), nil
-	}
+// 	if entry == nil {
+// 		return tools.Error(this.log, "sanity failure, Lookup_entry_load got nil entry."), nil
+// 	}
 
-	/* not to be confused with the block_num the user refers to. this is the absolute position location of the data */
-	var ret, data_block_num = entry.Get_data_block_lookup_pos(list_position)
-	if ret != nil {
-		return ret, nil
-	}
+// 	/* not to be confused with the block_num the user refers to. this is the absolute position location of the data */
+// 	var ret, data_block_num = entry.Get_data_block_lookup_pos(list_position)
+// 	if ret != nil {
+// 		return ret, nil
+// 	}
 
-	ret = this.check_data_block_limits(data_block_num)
-	if ret != nil {
-		return ret, nil
-	}
+// 	ret = this.check_data_block_limits(data_block_num)
+// 	if ret != nil {
+// 		return ret, nil
+// 	}
 
-	var data *[]byte
-	ret, data = this.m_transaction_log_storage.Read_block(data_block_num) // absolute block position
-	if ret != nil {
-		return ret, nil
-	}
+// 	var data *[]byte
+// 	ret, data = this.m_transaction_log_storage.Read_block(data_block_num) // absolute block position
+// 	if ret != nil {
+// 		return ret, nil
+// 	}
 
-	if uint32(len(*data)) > this.Get_data_block_size_in_bytes() {
-		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
-			" returned data of length: ", len(*data),
-			" which is more than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
-	}
-	if uint32(len(*data)) < this.Get_data_block_size_in_bytes() {
-		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
-			" returned data of length: ", len(*data),
-			" which is more shorter than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
-	}
+// 	if uint32(len(*data)) > this.Get_data_block_size_in_bytes() {
+// 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
+// 			" returned data of length: ", len(*data),
+// 			" which is more than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
+// 	}
+// 	if uint32(len(*data)) < this.Get_data_block_size_in_bytes() {
+// 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
+// 			" returned data of length: ", len(*data),
+// 			" which is more shorter than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
+// 	}
+//
+// 	/* I was confusing two things here, reading a single block will alway be data_block_size_in_bytes in
+// 	length, we only return a list part, the caller is the one reading the entire block and must resize. */
+// 	// /* a single data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
+// 	// of the data in the whole block group, so shorten the data we're returning if it's not the entire block */
+// 	// var position_of_last_byte_in_this_block uint32 = list_position * this.m_data_block_size
+// 	// var block_group_value_length = entry.Get_value_length()
+// 	// if position_of_last_byte_in_this_block > block_group_value_length {
+// 	// 	/* this is (must be) the last block_group_list in the value, and it doesn't fill out this block
+// 	// 	so we must shorten the data in this block to the size of the value for the last block, which we are. */
+// 	// 	if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_data_block_size {
+// 	// 		/* so this one's weird, this means that they asked for a block in the block_group list beyond
+// 	// 		where any data could possibly be given the length of the block_group of data. */
+// 	// 		return tools.Error(this.log, "sanity failure: data_block_load for list_position: ", list_position,
+// 	// 			" of ", this.m_data_block_size, " bytes each, is more than a block longer than the value of this ",
+// 	// 			"block_group which is: ", block_group_value_length, " bytes."), nil // hope that makes sense. should never happen. :-)
+// 	// 	}
+// 	// 	var length_of_this_data_block = block_group_value_length % this.m_data_block_size
+// 	// 	*data = (*data)[0:length_of_this_data_block]
+// 	// }
 
-	/* I was confusing two things here, reading a single block will alway be data_block_size_in_bytes in
-	length, we only return a list part, the caller is the one reading the entire block and must resize. */
-	// /* a single data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
-	// of the data in the whole block group, so shorten the data we're returning if it's not the entire block */
-	// var position_of_last_byte_in_this_block uint32 = list_position * this.m_data_block_size
-	// var block_group_value_length = entry.Get_value_length()
-	// if position_of_last_byte_in_this_block > block_group_value_length {
-	// 	/* this is (must be) the last block_group_list in the value, and it doesn't fill out this block
-	// 	so we must shorten the data in this block to the size of the value for the last block, which we are. */
-	// 	if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_data_block_size {
-	// 		/* so this one's weird, this means that they asked for a block in the block_group list beyond
-	// 		where any data could possibly be given the length of the block_group of data. */
-	// 		return tools.Error(this.log, "sanity failure: data_block_load for list_position: ", list_position,
-	// 			" of ", this.m_data_block_size, " bytes each, is more than a block longer than the value of this ",
-	// 			"block_group which is: ", block_group_value_length, " bytes."), nil // hope that makes sense. should never happen. :-)
-	// 	}
-	// 	var length_of_this_data_block = block_group_value_length % this.m_data_block_size
-	// 	*data = (*data)[0:length_of_this_data_block]
-	// }
-
-	return nil, data
-}
-
-// now we need a function to read in all the blocks and put them in the entry.value...
-// and we will use go routines.
-// xxxz xxxz
-// got up to here...
-
-func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
-	/* Store this lookup entry at this block num position in the lookup table. this will require a read update
-	write cycle of one or two blocks depending on if the entry straddles the border of two blocks.
-	we run everything through the transaction logger because this is where it counts. */
-
-	var ret = this.check_lookup_table_limits(block_num)
-	if ret != nil {
-		return ret
-	}
-
-	// now figure out what block the block_num entry is in and load it
-	var _, start_block, _, end_block, start_offset uint32
-	var alldata *[]byte
-	ret, _, start_block, _, end_block, start_offset, alldata = this.internal_entry_load(block_num)
-	if ret != nil {
-		return ret
-	}
-	// get the entry in byte form
-	var entrydata *[]byte
-	ret, entrydata = entry.Serialize()
-	if ret != nil {
-		return ret
-	}
-	// and write it over the entry in the block where the entry lives.
-	var end_offset = start_offset + this.Get_lookup_entry_size()
-	var copied int = copy((*alldata)[int(start_offset):end_offset], (*entrydata)[:])
-	if copied != int(this.Get_lookup_entry_size()) {
-		return tools.Error(this.log, "lookup_entry_store failed to update the block while copying the entry data into it. ",
-			"expected to copy: ", this.Get_lookup_entry_size(), " only copied ", copied)
-	}
-
-	/* now we have to write the block(s) back */
-	var pos uint32 = 0
-	for lp := start_block; lp < (end_block + 1); lp++ {
-		var data = (*alldata)[pos : pos+this.Get_lookup_entry_size()]
-		ret = this.m_transaction_log_storage.Write_block(lp, &data)
-		if ret != nil {
-			return ret
-		}
-		pos += this.Get_lookup_entry_size()
-	}
-
-	return nil
-}
+// 	return nil, data
+// }
 
 // func (this *Slookup_i) print_me(pos uint32, last_key string) {
 
