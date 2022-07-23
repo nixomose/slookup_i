@@ -590,13 +590,33 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	return ret, entry
 }
 
-func (this *Slookup_i) Data_block_load_list(entry *[]slookup_i_lib_entry.Slookup_i_entry, list_position []uint32) (tools.Ret, *[]byte) {
-	/* same thing as data_block_load but for a list, which we can run in parallel */
-	xxxz got up to here.
+func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entry) (tools.Ret, *[]byte) {
+	/* given an entry, go get all of the members in the block group and lay them out in a byte array
+	   and return it, similar to tlog.read_block_range except we're getting random blocks. */
+	var ret tools.Ret
+	var _, _, _, _, start_offset uint32
+	var alldata *[]byte
+
+	var actual_count = entry.Get_block_group_length()
+	var block_list []uint32 = make([]uint32, actual_count)
+	var lp uint32
+	for lp = 0; lp < actual_count; lp++ {
+		block_list[lp] = entry.Get_data_block_pos(lp)
+		ret = this.check_data_block_limits(block_list[lp])
+		if ret != nil {
+			return ret, nil
+		}
+	}
+
+	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list) // absolute block position
+	if ret != nil {
+		return ret, nil
+	}
+	return nil, alldata
 }
 
-
-func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entry, list_position uint32) (tools.Ret, *[]byte) {
+func (this *Slookup_i) internal_data_block_load_list_position(entry *slookup_i_lib_entry.Slookup_i_entry,
+	list_position uint32) (tools.Ret, *[]byte) {
 	/* given a lookup table entry, and the array position in the block_group list,
 	load the data the entry refers to and return it. we can't store it in entry.value, because we're not getting the
 	whole value, we're only getting one block in the block_group. this just raw reads the data block from the correct location.
@@ -604,7 +624,6 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	start position of the data after the lookup table (actually after transaction log). The reason is we may resize the
 	lookup table someday and we don't want the blocks to move when the start-of-data block
 	moves. */
-	/* we're eventually going to run this from a goroutine so there will be some locking neccesary, although maybe not here. */
 
 	if entry == nil {
 		return tools.Error(this.log, "sanity failure, Lookup_entry_load got nil entry."), nil
@@ -627,42 +646,39 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 		return ret, nil
 	}
 
-	if uint32(len(*data)) > this.m_data_block_size {
+	if uint32(len(*data)) > this.Get_data_block_size_in_bytes() {
 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
 			" returned data of length: ", len(*data),
-			" which is more than the max data block size: ", this.m_data_block_size), nil
+			" which is more than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
 	}
-	if uint32(len(*data)) < this.m_data_block_size {
+	if uint32(len(*data)) < this.Get_data_block_size_in_bytes() {
 		return tools.Error(this.log, "transaction_log read block for data block num: ", data_block_num,
 			" returned data of length: ", len(*data),
-			" which is more shorter than the max data block size: ", this.m_data_block_size), nil
+			" which is more shorter than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
 	}
-	/* the data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
-	of the data in the whole block group, so shorten the data we're returning if it's not the entire block */
-	var position_of_last_byte_in_this_block uint32 = list_position * this.m_data_block_size
-	var block_group_value_length = entry.Get_value_length()
-	if position_of_last_byte_in_this_block > block_group_value_length {
-		/* this is (must be) the last block_group_list in the value, and it doesn't fill out this block
-		so we must shorten the data in this block to the size of the value for the last block, which we are. */
-		if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_data_block_size {
-			/* so this one's weird, this means that they asked for a block in the block_group list beyond
-			where any data could possibly be given the length of the block_group of data. */
-			return tools.Error(this.log, "sanity failure: data_block_load for list_position: ", list_position,
-				" of ", this.m_data_block_size, " bytes each, is more than a block longer than the value of this ",
-				"block_group which is: ", block_group_value_length, " bytes."), nil // hope that makes sense. should never happen. :-)
-		}
-		var length_of_this_data_block = block_group_value_length % this.m_data_block_size
-		*data = (*data)[0:length_of_this_data_block]
-	}
+
+	/* I was confusing two things here, reading a single block will alway be data_block_size_in_bytes in
+	length, we only return a list part, the caller is the one reading the entire block and must resize. */
+	// /* a single data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
+	// of the data in the whole block group, so shorten the data we're returning if it's not the entire block */
+	// var position_of_last_byte_in_this_block uint32 = list_position * this.m_data_block_size
+	// var block_group_value_length = entry.Get_value_length()
+	// if position_of_last_byte_in_this_block > block_group_value_length {
+	// 	/* this is (must be) the last block_group_list in the value, and it doesn't fill out this block
+	// 	so we must shorten the data in this block to the size of the value for the last block, which we are. */
+	// 	if (position_of_last_byte_in_this_block - block_group_value_length) > this.m_data_block_size {
+	// 		/* so this one's weird, this means that they asked for a block in the block_group list beyond
+	// 		where any data could possibly be given the length of the block_group of data. */
+	// 		return tools.Error(this.log, "sanity failure: data_block_load for list_position: ", list_position,
+	// 			" of ", this.m_data_block_size, " bytes each, is more than a block longer than the value of this ",
+	// 			"block_group which is: ", block_group_value_length, " bytes."), nil // hope that makes sense. should never happen. :-)
+	// 	}
+	// 	var length_of_this_data_block = block_group_value_length % this.m_data_block_size
+	// 	*data = (*data)[0:length_of_this_data_block]
+	// }
 
 	return nil, data
 }
-
-/* it may seem simpler to say "I want to read this block" then iterate through all
-the block group members, and the above function is complexity overkill, but we'll
-need something like that when it comes to moving individual data blocks around,
-they'll have to be able to read a single member of a block group and get the length
-right. */
 
 // now we need a function to read in all the blocks and put them in the entry.value...
 // and we will use go routines.
