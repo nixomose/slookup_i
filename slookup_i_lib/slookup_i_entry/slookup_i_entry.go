@@ -164,6 +164,10 @@ func (this *Slookup_i_entry) Get_data_block_pos(block_group_pos uint32) uint32 {
 	/* return the block num this entry refers to where it's data is. */
 	return (*this.block_group_list)[block_group_pos]
 }
+func (this *Slookup_i_entry) Get_block_group_length() uint32 {
+	/* return the size of the block_group array. */
+	return uint32(len(*this.block_group_list))
+}
 
 func (this *Slookup_i_entry) Get_value_length() uint32 {
 	// return the length of the data in this block_group set
@@ -200,34 +204,6 @@ func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_bl
 			" which is greater than the block_group list array length ", len(*this.block_group_list))
 	}
 	(*this.block_group_list)[block_group_pos] = data_block
-	return nil
-}
-
-/* get and set an item in the data_block_lookup array for this lookup entry */
-
-func (this *Slookup_i_entry) Get_data_block_lookup_pos(data_block_lookup_pos uint32) (tools.Ret, uint32) {
-	if data_block_lookup_pos > this.block_group_count {
-		return tools.Error(this.log, "trying to get data_block_lookup_pos ", data_block_lookup_pos,
-			" which is greater than the block_group count ", this.block_group_count), 0
-	}
-	if data_block_lookup_pos > uint32(len(*this.data_block_lookup_list)) {
-		return tools.Error(this.log, "trying to get block_group pos ", data_block_lookup_pos,
-			" which is greater than the data_block_lookup list array length ", len(*this.data_block_lookup_list)), 0
-	}
-	return nil, (*this.data_block_lookup_list)[data_block_lookup_pos]
-}
-
-func (this *Slookup_i_entry) Set_data_block_lookup_pos(data_block_lookup_pos uint32, entry_pos uint32) tools.Ret {
-	/* this is where you'd set the entry_position in the reverse lookup array */
-	if data_block_lookup_pos > this.block_group_count {
-		return tools.Error(this.log, "trying to set block_group  pos ", data_block_lookup_pos,
-			" which is greater than the number of blocks in the block_group ", this.block_group_count)
-	}
-	if data_block_lookup_pos > uint32(len(*this.block_group_list)) {
-		return tools.Error(this.log, "trying to set block_group pos ", data_block_lookup_pos,
-			" which is greater than the block_group list array length ", len(*this.block_group_list))
-	}
-	(*this.data_block_lookup_list)[data_block_lookup_pos] = entry_pos
 	return nil
 }
 
