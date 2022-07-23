@@ -399,6 +399,14 @@ func (this *Slookup_i) Get_first_data_block_position() uint32 {
 	return data_blocks_start_block
 }
 
+func (this *Slookup_i) Get_block_group_count() uint32 {
+	/* this just returns the value in the header, the number of entries in the block_group array */
+
+	this.interface_lock.Lock()
+	defer this.interface_lock.Unlock()
+	return this.m_header.M_block_group_count
+}
+
 func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	/* for now, read the header block from the transaction log, deserialize it and return the free position */
 	// we can make a cache later.
@@ -407,16 +415,20 @@ func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	return nil, pos
 }
 
-func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
+func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
 	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
 
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
-	so we might have to concatenate. something we'll have to fix with goroutines someday. */
+	so we might have to concatenate. something we'll have to fix with goroutines someday.
+	oh look, we did goroutines already.
+	start block is the first block, end block is the number after the last block, as in end block is not inclusive. */
+
 	start_pos = block_num * this.Get_lookup_entry_size_in_bytes()
 	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_position()
 
 	end_pos = start_pos + this.Get_lookup_entry_size_in_bytes()
 	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_position()
+	end_block += 1 // end_block is one higher than the one we want to read
 
 	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
 		return
@@ -424,10 +436,13 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
 		return
 	}
-
-	if ret = this.m_transaction_log_storage.Read_block_range(); ret != nil {
-		return ret
+	if ret, alldata = this.m_transaction_log_storage.Read_block_range(start_block, end_block); ret != nil {
+		return
 	}
+
+	// get the position of this entry in this alldata, modulo works here too...
+	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
+	return
 
 	// this is all in tlog now.
 	// var number_of_blocks = end_block - start_block + 1
@@ -469,9 +484,6 @@ func (this *Slookup_i) internal_entry_load(block_num uint32) (ret tools.Ret, sta
 	// 	ret = final_ret
 	// }
 
-	// get the position of this entry in this alldata, modulo works here too...
-	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
-	return
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -570,12 +582,19 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 
 	var _, _, _, _, start_offset uint32
 	var alldata *[]byte
-	ret, _, _, _, _, start_offset, alldata = this.internal_entry_load(block_num)
-	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size()]
-	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, block_num, this.m_data_block_size, this.m_block_group_count)
+	ret, _, _, _, _, start_offset, alldata = this.internal_lookup_entry_blocks_load(block_num)
+	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size_in_bytes()]
+	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, block_num,
+		this.Get_data_block_size_in_bytes(), this.Get_block_group_count())
 	ret = entry.Deserialize(this.log, &entrydata)
 	return ret, entry
 }
+
+func (this *Slookup_i) Data_block_load_list(entry *[]slookup_i_lib_entry.Slookup_i_entry, list_position []uint32) (tools.Ret, *[]byte) {
+	/* same thing as data_block_load but for a list, which we can run in parallel */
+	xxxz got up to here.
+}
+
 
 func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entry, list_position uint32) (tools.Ret, *[]byte) {
 	/* given a lookup table entry, and the array position in the block_group list,
