@@ -107,13 +107,14 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	actually for this it doesn't either, the only savings it gets you is reading the lookup table, the
 	actual consecutive blocks are sprinkled all over the place, so that's why I'm doing this.
 	and most of the time, the lookup table entry read will be one block anyway. */
+	// end_block is not inclusive
 
 	var rets = make(chan tools.Ret)
 	var alldata_lock sync.Mutex
 	var alldata *[]byte
 	*alldata = make([]byte, (block_num_end-block_num_start+1)*this.m_data_block_size_in_bytes)
 
-	for lp := block_num_start; lp < (block_num_end + 1); lp++ {
+	for lp := block_num_start; lp < block_num_end; lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 
@@ -122,7 +123,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 
 	// wait for them all to come back.
 	var ret tools.Ret = nil
-	for wait := 0; wait < int(block_num_end-block_num_start+1); wait++ {
+	for wait := 0; wait < int(block_num_end-block_num_start); wait++ {
 		var ret2 = <-rets
 		if ret2 != nil {
 			ret = ret2
