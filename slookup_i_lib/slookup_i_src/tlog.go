@@ -112,7 +112,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	var rets = make(chan tools.Ret)
 	var alldata_lock sync.Mutex
 	var alldata *[]byte
-	*alldata = make([]byte, (block_num_end-block_num_start+1)*this.m_data_block_size_in_bytes)
+	*alldata = make([]byte, (block_num_end-block_num_start)*this.m_data_block_size_in_bytes)
 
 	for lp := block_num_start; lp < block_num_end; lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
@@ -124,6 +124,34 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	// wait for them all to come back.
 	var ret tools.Ret = nil
 	for wait := 0; wait < int(block_num_end-block_num_start); wait++ {
+		var ret2 = <-rets
+		if ret2 != nil {
+			ret = ret2
+		}
+	}
+	// alldata should be filled correctly if all went well
+	return ret, alldata
+}
+
+func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
+	/* like above, but it gets a list of blocks. returns the data in the byte array */
+
+	var rets = make(chan tools.Ret)
+	var alldata_lock sync.Mutex
+	var alldata *[]byte
+	*alldata = make([]byte, uint32(len(block_list))*this.m_data_block_size_in_bytes)
+
+	var lp uint32
+	for lp = 0; lp < uint32(len(block_list)); lp++ {
+		var destposstart = lp * this.m_data_block_size_in_bytes
+		var destposend = destposstart + this.m_data_block_size_in_bytes
+
+		go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+	}
+
+	// wait for them all to come back.
+	var ret tools.Ret = nil
+	for wait := 0; wait < len(block_list); wait++ {
 		var ret2 = <-rets
 		if ret2 != nil {
 			ret = ret2
