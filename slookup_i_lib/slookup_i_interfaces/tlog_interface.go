@@ -22,14 +22,9 @@ type Transaction_log_interface interface {
 
 	Read_block(block_num uint32) (tools.Ret, *[]byte)
 
+	Read_block_range(block_num_start uint32, block_num_end uint32) (tools.Ret, *[]byte)
+
 	Write_block(block_num uint32, n *[]byte) tools.Ret
 
 	End_transaction() tools.Ret
-
-	// these are owned by slookup_i, not the backing store.
-	//Get_first_transaction_log_position() (tools.Ret, uint32)
-
-	// Get_first_data_block_position() (tools.Ret, uint32)
-
-	// Get_free_position() (tools.Ret, uint32)
 }
