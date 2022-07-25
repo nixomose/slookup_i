@@ -92,7 +92,7 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 
 	var s Slookup_i
 	s.log = l
-	s.m_header = this.init_header()
+	s.m_header = s.init_header()
 	/* storage gives you direct access to the backing store so you can init and such */
 	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
@@ -107,19 +107,22 @@ func New_Slookup_i(l *tools.Nixomosetools_logger, b slookup_i_lib_interfaces.Slo
 	return &s
 }
 
-func (this *Slookup_i) init_header() Slookup_i_header {
+func (this *Slookup_i) init_header(data_block_size uint32, lookup_table_entry_count uint32,
+	total_blocks uint32, block_group_count uint32, alignment uint32) Slookup_i_header {
 	var h Slookup_i_header = Slookup_i_header{}
 	h.M_magic = SLOOKUP_I_MAGIC
 	h.M_data_block_size = data_block_size
 	h.M_lookup_table_entry_count = lookup_table_entry_count
 	h.M_total_blocks = total_blocks
 	h.M_block_group_count = block_group_count
-	h.M_lookup_table_start_block = this.Get_lookup_table_start_block
-	h.M_transaction_log_start_block =
-		h.M_data_block_start_block
+	h.M_lookup_table_start_block = this.Get_first_lookup_table_start_block()
+	h.M_transaction_log_start_block = this.Get_first_transaction_log_start_block()
+	h.M_data_block_start_block = this.Get_first_data_block_start_block()
 	h.M_free_position = h.M_data_block_start_block
+
+	// dirty maybe is a backing store thing? alignment too
 	h.M_alignment = alignment
-	h.M_dirty = false
+	h.M_dirty = 0
 }
 
 func (this *Slookup_i) Get_logger() *tools.Nixomosetools_logger {
@@ -365,11 +368,11 @@ of what goes in those blocks, having the filestore know what offspring are was a
 the lookup table, the log and the data blocks is entirely a slookup_i thing, so here is where we actually figure out
 what the locations of the three sections are, in terms of their block locations. */
 
-func (this *Slookup_i) Get_first_lookup_table_position() uint32 {
+func (this *Slookup_i) Get_first_lookup_table_start_block() uint32 {
 	return LOOKUP_TABLE_START_BLOCK
 }
 
-func (this *Slookup_i) Get_first_transaction_log_position() uint32 {
+func (this *Slookup_i) Get_first_transaction_log_start_block() uint32 {
 	/* There are/can be three things in the file. the lookup table always comes first.
 	   then there's a pile of blocks for the transaction log (or zero if it is not stored here)
 		 and then the actual data blocks. this returns the absolute block position of the first block
@@ -383,7 +386,7 @@ func (this *Slookup_i) Get_first_transaction_log_position() uint32 {
 	return first_transaction_log_block
 }
 
-func (this *Slookup_i) Get_first_data_block_position() uint32 {
+func (this *Slookup_i) Get_first_data_block_start_block() uint32 {
 	/* this is the start of the transaction log block position plus the size of the transaction log plus some padding. */
 	var ret tools.Ret
 	var transaction_log_start_block uint32
