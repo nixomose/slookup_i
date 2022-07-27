@@ -26,5 +26,7 @@ type Transaction_log_interface interface {
 
 	Write_block(block_num uint32, n *[]byte) tools.Ret
 
+	Write_block_range(start_block uint32, end_block uint32, alldata *[]byte) tools.Ret
+
 	End_transaction() tools.Ret
 }
