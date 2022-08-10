@@ -641,10 +641,10 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	}
 	// get the entry in byte form
 	var entrydata *[]byte
-	ret, entrydata = entry.Serialize()
-	if ret != nil {
+	if ret, entrydata = entry.Serialize(); ret != nil {
 		return ret
 	}
+
 	// and write it over the entry in the block where the entry lives.
 	var end_offset = start_offset + this.Get_lookup_entry_size_in_bytes()
 	var copied int = copy((*alldata)[int(start_offset):end_offset], (*entrydata)[:])
@@ -678,7 +678,7 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 			return ret, nil
 		}
 	}
-got up to here.
+	 got up to here.
 	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list) // absolute block position
 	if ret != nil {
 		return ret, nil
