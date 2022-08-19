@@ -199,6 +199,31 @@ func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32
 	return ret
 }
 
+func (this *Tlog) Write_block_list(block_list []uint32, alldata *[]byte) tools.Ret {
+	/* same like above but for random blocks in the block_list
+	call write single block in parallel getting the data from slices of alldata. */
+
+	var rets = make(chan tools.Ret)
+	var alldata_lock sync.Mutex
+
+	for lp, block_num := range block_list {
+		var destposstart = uint32(lp) * this.m_data_block_size_in_bytes
+		var destposend = destposstart + this.m_data_block_size_in_bytes
+
+		go this.write_from_buffer(rets, block_num, destposstart, destposend, &alldata_lock, alldata)
+	}
+
+	// wait for them all to come back.
+	var ret tools.Ret = nil
+	for wait := 0; wait < len(block_list); wait++ {
+		var ret2 = <-rets
+		if ret2 != nil {
+			ret = ret2
+		}
+	}
+	return ret
+}
+
 func (this *Tlog) End_transaction() tools.Ret {
 	return tools.Error(this.log, "not implemented yet")
 }
