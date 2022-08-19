@@ -24,9 +24,13 @@ type Transaction_log_interface interface {
 
 	Read_block_range(block_num_start uint32, block_num_end uint32) (tools.Ret, *[]byte)
 
+	Read_block_list(block_list []uint32) (tools.Ret, *[]byte)
+
 	Write_block(block_num uint32, n *[]byte) tools.Ret
 
 	Write_block_range(start_block uint32, end_block uint32, alldata *[]byte) tools.Ret
+
+	Write_block_list(block_list []uint32, alldata *[]byte) tools.Ret
 
 	End_transaction() tools.Ret
 }
