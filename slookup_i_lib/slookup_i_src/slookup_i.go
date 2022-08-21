@@ -687,6 +687,12 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	return nil, alldata
 }
 
+// not sure if we need this
+/* I don't think we do, slookup deals with entries and an entry might have 5 blocks
+in its group block list, but the data_block_load above takes care of reading the whole thing in.
+it's somebody else's probably to decompress it, but we shouldn't worry about reading individual
+parts of a group block list which is what this looks like it's trying to do. */
+
 // func (this *Slookup_i) internal_data_block_load_list_position(entry *slookup_i_lib_entry.Slookup_i_entry,
 // 	list_position uint32) (tools.Ret, *[]byte) {
 // 	/* given a lookup table entry, and the array position in the block_group list,
@@ -728,7 +734,7 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 // 			" returned data of length: ", len(*data),
 // 			" which is more shorter than the max data block size: ", this.Get_data_block_size_in_bytes()), nil
 // 	}
-//
+
 // 	/* I was confusing two things here, reading a single block will alway be data_block_size_in_bytes in
 // 	length, we only return a list part, the caller is the one reading the entire block and must resize. */
 // 	// /* a single data block is always this.m_max_value_length bytes long, the lookup table entry knows the length
@@ -752,27 +758,6 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 // 	return nil, data
 // }
 
-// func (this *Slookup_i) print_me(pos uint32, last_key string) {
-
-// 	var ret, n = this.Node_load(pos)
-// 	if ret != nil {
-// 		fmt.Println(ret.Get_errmsg())
-// 		return
-// 	}
-// 	var left uint32 = n.Get_left_child()
-// 	if left != 0 {
-// 		this.print_me(left, last_key)
-// 	}
-// 	fmt.Print("[" + tools.Uint32tostring(pos) + "] " + n.Get_key() + " ")
-// 	if n.Get_key() < last_key {
-// 		fmt.Print("\n\nError, keys not in sequence: " + n.Get_key() + " vs " + last_key)
-// 	}
-// 	var right uint32 = n.Get_right_child()
-// 	if right != 0 {
-// 		this.print_me(right, last_key)
-// 	}
-// }
-
 func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32) (tools.Ret, *uint32) {
 	/* return how many blocks in a block group we need for a value of this length */
 
@@ -780,16 +765,18 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 	if value_length == 0 {
 		var rval uint32 = 0
 		return nil, &rval
+	}
 
-	}
-	var nnodes uint32 = value_length / this.m_data_block_size
-	if value_length%this.m_data_block_size != 0 {
-		nnodes++ // there was some data that spilled over to the next node
-	}
-	if nnodes > this.m_block_group_count { // they sent us a value larger than fits in the block
+	var group_size = this.Get_block_group_size_in_bytes()
+	if value_length > group_size {
 		return tools.Error(this.log,
-			"value size ", value_length, " is too big to fit in ", (this.m_block_group_count), " blocks of ",
-			this.m_data_block_size, " length totaling ", (this.m_block_group_count)*this.m_data_block_size), nil
+			"value size ", value_length, " is too big to fit in ", (this.m_header.M_block_group_count), " blocks of ",
+			this.m_header.M_data_block_size, " length totaling ", group_size), nil
+	}
+
+	var nnodes uint32 = value_length / this.m_header.M_data_block_size
+	if value_length%this.m_header.M_data_block_size != 0 {
+		nnodes++ // there was some more data that spilled over to the next node
 	}
 	return nil, &nnodes
 }
@@ -834,7 +821,8 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	if ret != nil {
 		return ret
 	}
-	var block_group_count_required uint32 = *iresp
+	var block_group_count_required uint32 = *iresp // throwback to generations of porting from java, clean this up some day
+
 	/* first handle shrinking if need be */
 	this.log.Debug("current block group count: " + tools.Uint32tostring(current_block_group_count) +
 		" additional block group count required: " + tools.Uint32tostring(block_group_count_required))
@@ -875,7 +863,8 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			}
 			delete_list[delete_list_pos] = block_group_value
 			delete_list_pos++
-			this.log.Debug("removing block group position ", rp, " block: ", tools.Uint32tostring(block_group_value))
+			this.log.Debug("adding to list to shorten block_group in entry ", entry.Get_entry_pos(),
+				", remove block group position ", rp, " block: ", tools.Uint32tostring(block_group_value))
 		}
 
 		/* Now go through the delete list individually deleting each item, updating the list if
@@ -889,7 +878,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			if ret != nil {
 				return ret
 			}
-			//xxxzgot up to here
+			xxxz //xxxzgot up to here
 
 			/* now update the remainder of the list if anything in it moved. we can do the whole list,
 			 * it doesn't hurt to update something that was already processed/deleted. */

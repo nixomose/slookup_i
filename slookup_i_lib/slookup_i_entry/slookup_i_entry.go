@@ -179,6 +179,11 @@ func (this *Slookup_i_entry) Get_max_value_length() uint32 {
 	return this.max_value_length
 }
 
+func (this *Slookup_i_entry) Get_entry_pos() uint32 {
+	// return the cached entry pos value
+	return this.entry_pos
+}
+
 /* get and set an item in the block_group array for this lookup entry */
 
 func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.Ret, uint32) {

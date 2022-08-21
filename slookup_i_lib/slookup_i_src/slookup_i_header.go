@@ -23,7 +23,7 @@ type Slookup_i_header struct {
 	M_block_group_count           uint32 // how many data blocks in a block group, also how many elements in the block_group_list a.k.a. m_offspring_per_node
 	M_lookup_table_start_block    uint32 // what block number the lookup table starts at
 	M_transaction_log_start_block uint32 // what block number the transaction log starts at
-	M_data_block_start_block      uint32 //  what block number the data blocks start at, this can move if we resize the transaction log
+	M_data_block_start_block      uint32 // what block number the data blocks start at, this can move if we resize the transaction log
 	M_free_position               uint32 // location of first free block, starts life at data_block_start_block
 	// these are specific to the backing store.
 	// M_alignment                   uint32 // size of block alignment, 0 = not aligned.
