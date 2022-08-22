@@ -978,75 +978,22 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	 * have to read update write, we know their on disk position, they've already been allocated
 	 * we just write them.  */
 
-	var num_parts uint32 = uint32(len(new_value)) / this.m_header.M_data_block_size
-	if len(new_value)%int(this.m_header.M_data_block_size) != 0 {
-		num_parts++
-	}
+	/* stupid.
+	   we calculate this above, we don't have to do it again. */
 
-	if num_parts == 0 {
-		return tools.Error(this.log, "error splitting data value by ", this.m_data_block_size, " bytes, new_value is empty.")
-	}
-	if num_parts != entry.Get_block_group_length() {
-		return tools.Error(this.log, "sanity failure, size of block_group array: ", entry.Get_block_group_length(),
-			" does not match calculated number of data blocks to store: ", num_parts)
-	}
+	/* double stupid
+	lookup_entry_store does all this for us. in parallel. */
 
-	// xxxxz //////// got up to here
-	///////////	xxxz //xxxzgot up to here
-	xxxz
-	var data_parts [][]byte = make([][]byte, num_parts)
-
-	var counter uint32
-	var pos int = 0
-	for counter = 0; counter < num_parts; counter++ {
-		var end_of_data = tools.Minint(len(new_value[pos:]), int(this.m_data_block_size))
-
-		data_parts[counter] = new_value[pos : pos+end_of_data]
-
-		pos += int(this.m_data_block_size)
-	}
-
-	if num_parts != (offspring_nodes_required + 1) {
-		return tools.Error(this.log, "calculated nodes ", tools.Uint32tostring(offspring_nodes_required+1),
-			" doesn't match count of split data: ", tools.Uint32tostring(num_parts))
-	}
-
-	// put the first one in the mother node
-	var partpos int = 0
-	ret = mother_node.Set_value(data_parts[partpos])
+	ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry)
 	if ret != nil {
 		return ret
-	}
-	partpos++
-	/* all the offspring values are set, the parent and children values don't change, we're
-	 * just updating the value, not the key. write the mother node to disk. */
-	ret = this.node_store(mother_node_pos, mother_node)
-	if ret != nil {
-		return ret
-	}
-
-	// now do all the offspring, we have to make new nodes for each, they've already been allocated on disk.
-	var lp uint32
-	for lp = 0; lp < offspring_nodes_required; lp++ {
-		var offspring_node *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, this.m_default_key, data_parts[partpos],
-			this.m_max_key_length, this.m_data_block_size, 0) // offspring nodes have no offspring node array
-		partpos++
-		// none of the fields matter except the data and the parent. everything else should be zero.
-		offspring_node.Set_parent(mother_node_pos)
-		var ret, iresp = mother_node.Get_offspring_pos(lp)
-		if ret != nil {
-			return ret
-		}
-		var offspring_pos_to_store uint32 = *iresp
-		// this.log.Debug("updating data in offspring position ", tools.Uint32tostring(lp), " pointing to node ", offspring_pos_to_store)
-		ret = this.node_store(offspring_pos_to_store, offspring_node)
-		if ret != nil {
-			return ret
-		}
 	}
 	// if we got here we're good.
 	return nil
 }
+
+// xxxxz //////// got up to here
+///////////	xxxz //xxxzgot up to here
 
 func (this *Slookup_i) Update_or_insert(key string, new_value []byte) tools.Ret {
 	/* this function will insert if not there and update if there, so no duplicates will be created in
