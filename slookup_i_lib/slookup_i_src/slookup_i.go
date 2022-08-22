@@ -851,6 +851,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 		 * we'll have to set a zero in the first position (for really complicated reasons) and then
 		 * there will be valid live blocks in the block group list after that and that's an invalid block group list layout
 		 * so we must delete from right to left. */
+		/// xxxz test for case where we're moving to a zero length block
 		var rp int // must be int, because we're counting down to zero, and need to get to -1 to end loop
 		for rp = int(current_block_group_count - 1); rp >= int(block_group_count_required); rp-- {
 			var ret, resp = entry.Get_block_group_pos(uint32(rp))
@@ -858,7 +859,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				return ret
 			}
 			var block_group_value uint32 = resp
-			if block_group_value == 0 {
+			if block_group_value == 0 { /// xxxz remind me what this is for? this should never happen
 				break
 			}
 			delete_list[delete_list_pos] = block_group_value
@@ -878,95 +879,121 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			if ret != nil {
 				return ret
 			}
-			xxxz //xxxzgot up to here
 
-			/* now update the remainder of the list if anything in it moved. we can do the whole list,
+			/* now update the remainder of the delete list if anything in it moved. we can do the whole list,
 			 * it doesn't hurt to update something that was already processed/deleted. */
 			var from uint32 = moved_from_resp
 			var to uint32 = moved_to_resp
 			this.log.Debug("moved mover from " + tools.Uint32tostring(from) + " to " + tools.Uint32tostring(to))
 			var wp int
-			for wp = rp + 1; wp < int(delete_list_pos); wp++ { // as we deleted wp in this round, we don't need to update it.
+			for wp = rp + 1; wp < int(delete_list_pos); wp++ { // as we deleted rp in this round, we don't need to update it.
 				if delete_list[wp] == from {
 					delete_list[wp] = to
 					this.log.Debug("mover node " + tools.Uint32tostring(from) + " was in the delete list so we moved it to " + tools.Uint32tostring(to))
 				}
 			}
-			if mother_node_pos == from {
-				mother_node_pos = to
-				this.log.Debug("mover node " + tools.Uint32tostring(from) + " was the mother node and was in the delete list so we moved it to " + tools.Uint32tostring(to))
-			}
 			if this.debugprint {
 				this.Print(this.log)
 			}
-		}
+		} // loop dp
 
 		/* so what is on disk is correct, what is in memory is probably/possibly not.
-		 * read mother back in before we do anything. we have to zero out the mother node index
-		 * entries for the guys we just deleted unless delete does that already.
-		 * I just checked it doesn't so we have to do that here, but I think that's it.
-		 * 11/20/2020 so now physically_delete_one does clear out the mother's offspring so we can probably skip this. */
+		* read the entry back in before we do anything. we have to zero out the block_group_list array entries
+		* for the guys we just deleted unless delete does that already.
+		* I just checked it doesn't so we have to do that here, but I think that's it.
+		* 8/22/2022 so now physically_delete_one does clear out the entry's block_group_list array entries
+		* so we can probably skip this.
+		actally no, we can't skip this, well maybe we can. below in the else we have the case where we add
+		data blocks to the entry, and that needs to be written to disk. if we don't reread from disk here
+		we risk having after-the-if rewrite the entry to disk and it will be wrong if we don't refresh
+		it here. so we either fix below to make sure we don't rewrite (future optimization) or
+		we refresh here.
+		take that back again, each code area will make sure the entry is correct on disk.
+		physically delete does that for us, and add data blocks will write entry out itself. */
 
-		Ret, mother_node_resp := this.Node_load(mother_node_pos)
+		ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
 		if ret != nil {
-			return Ret
+			return ret
 		}
-
-		mother_node = mother_node_resp
-		// okay so now we have the mother node back, zero out the offspring nodes we just deleted.
+		// okay so now we have the entry back, zero out the block_group list array entries we just deleted.
 		/* this was actually taken care of in physically_delete_one, so we're done already. */
-	} else /* if handling shrinking. */ { /* the add more nodes if we need them, third option is old and new size (number of offspring)
+
+		/* end of handling shrinking. */
+	} else {
+		/* here's the case where we add more nodes if we need them, third option is old and new size (number of offspring)
 		   are the same, do nothing. */
-		if offspring_nodes_required > current_offspring_count {
+		if block_group_count_required > current_block_group_count {
 			// add some empty nodes and fill in the array with their position.
-			var amount uint32 = offspring_nodes_required - current_offspring_count
-			//this.log.Debug("allocating " + tools.Uint32tostring(amount) + " new nodes to expand for update.")
+			var amount uint32 = block_group_count_required - current_block_group_count
+			this.log.Debug("allocating " + tools.Uint32tostring(amount) + " new block_group entries to expand for update.")
 			var iresp []uint32
 			ret, iresp = this.m_storage.Allocate(amount)
 			if ret != nil {
 				return ret
 			}
 
-			// now peel off the new node numbers and add them to the offspring array in the correct position.
+			// now peel off the new data block numbers and add them to the offspring array in the correct position.
 			var i int = 0
-			for rp := current_offspring_count; rp < offspring_nodes_required; rp++ {
-				var new_node_pos uint32 = iresp[i]
+			for rp := current_block_group_count; rp < block_group_count_required; rp++ {
+				var new_data_block_pos uint32 = iresp[i]
 				i++
-				mother_node.Set_offspring_pos(rp, new_node_pos)
-				this.log.Debug("adding offspring node " + tools.Uint32tostring(new_node_pos) + " to position " + tools.Uint32tostring(rp) + " in mother offspring list.")
+				entry.Set_block_group_pos(rp, new_data_block_pos)
+				this.log.Debug("adding data block " + tools.Uint32tostring(new_data_block_pos) + " to position " +
+					tools.Uint32tostring(rp) + " in entry block_group array list.")
 			}
-		} // else {
-		//s.log.Debug("node update takes the same number of offspring, no offspring change.")
-		//	}
-	}
-	/* so now in all cases, we've allocated or freed the space, set the offspring array to match
-	 * and now we just have to update the data. */
+			// write entry to disk so it is correct on disk since nobody else is going to do it later.
+			if ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry); ret != nil {
+				return nil
+			}
+			// end of add nodes to make entry bigger because it was too small for this new value
+		} else {
+			this.log.Debug("node update takes the same number of offspring, no offspring change.")
+		}
+	} // end if resizing entry data block list. in the add case we have not yet written entry to disk
+
+	/* so by the time we're here, in all cases, we've allocated or freed the space, set the block_group list array has
+	 * all the places to put the new data, so now we just have to update the data. */
 
 	if len(new_value) == 0 { // unless of course it's empty
-
 		this.log.Debug("new value length is zero.")
-		var ret = mother_node.Set_value(new_value)
+		var ret = entry.Set_value(new_value)
 		if ret != nil {
 			return ret
 		}
-		return this.node_store(mother_node_pos, mother_node)
+		/* this is intersting we used to have one function to update the node list and the data
+		now we need two. except we actually updated the entry, we just haven't written it to disk yet.
+		so we write that to disk and then we just have to actually write the data blocks */
+
+		/* the entry has the new data value, and the correct number of block_group_data array entries to fit it,
+		   we just need somebody to actually write it to disk. */
+		// ahh, but this is only handling the empty value case, so there's no data to write out. */
+		return nil //this.Data_block_store(entry)
 	}
 
-	/* break new_value up into pieces that can fit into a node across mother and offspring,
-	 * we're going to be updating/writing over all the offspring nodes, we don't
-	 * have to read update write, we know their on disk position, we just generate new nodes
-	 * and write them. just the mother node is important to maintain, and we've already
-	 * loaded it. */
+	/* so NOW the entry has the new data value, and the correct number of block_group_data array entries to fit it,
+	   we just need somebody to actually write it to disk. */
 
-	var num_parts uint32 = uint32(len(new_value)) / this.m_data_block_size
-	if len(new_value)%int(this.m_data_block_size) != 0 {
+	/* break new_value up into pieces that can fit into the pieces we allocated above for it.
+	 * we're going to be updating/writing over all the data blocks in this block_group, we don't
+	 * have to read update write, we know their on disk position, they've already been allocated
+	 * we just write them.  */
+
+	var num_parts uint32 = uint32(len(new_value)) / this.m_header.M_data_block_size
+	if len(new_value)%int(this.m_header.M_data_block_size) != 0 {
 		num_parts++
 	}
 
 	if num_parts == 0 {
 		return tools.Error(this.log, "error splitting data value by ", this.m_data_block_size, " bytes, new_value is empty.")
 	}
+	if num_parts != entry.Get_block_group_length() {
+		return tools.Error(this.log, "sanity failure, size of block_group array: ", entry.Get_block_group_length(),
+			" does not match calculated number of data blocks to store: ", num_parts)
+	}
 
+	// xxxxz //////// got up to here
+	///////////	xxxz //xxxzgot up to here
+	xxxz
 	var data_parts [][]byte = make([][]byte, num_parts)
 
 	var counter uint32

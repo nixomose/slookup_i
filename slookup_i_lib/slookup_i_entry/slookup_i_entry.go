@@ -180,7 +180,7 @@ func (this *Slookup_i_entry) Get_max_value_length() uint32 {
 }
 
 func (this *Slookup_i_entry) Get_entry_pos() uint32 {
-	// return the cached entry pos value
+	// return the cached entry pos value that this entry represents
 	return this.entry_pos
 }
 
