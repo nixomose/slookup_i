@@ -32,5 +32,7 @@ type Transaction_log_interface interface {
 
 	Write_block_list(block_list []uint32, alldata *[]byte) tools.Ret
 
+	Set_commit()
+
 	End_transaction() tools.Ret
 }
