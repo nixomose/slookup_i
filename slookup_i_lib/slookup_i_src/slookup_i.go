@@ -28,7 +28,6 @@ the lookup table entry that contains a given data block position. */
 package slookup_i_src
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"sync"
@@ -994,354 +993,122 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 // xxxxz //////// got up to here
 ///////////	xxxz //xxxzgot up to here
-
-func (this *Slookup_i) Update_or_insert(key string, new_value []byte) tools.Ret {
-	/* this function will insert if not there and update if there, so no duplicates will be created in
-	 * this situation. */
+// this is a main entrypoint for zosbd2_slookup_i backing_store
+func (this *Slookup_i) Write(block_num uint32, new_value []byte) tools.Ret {
+	/* this function will write a block. */
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
 	this.m_transaction_log_storage.Start_transaction()
 	defer this.m_transaction_log_storage.End_transaction()
-	if ret := this.update_or_insert_always(key, new_value, false); ret != nil {
+	if ret := this.write_internal(block_num, new_value); ret != nil {
 		return ret
 	}
 	// if we got here okay, commit the transaction.
 	this.m_transaction_log_storage.Set_commit()
+	return nil
 }
 
-func (this *Slookup_i) update_or_insert_always(key string, new_value []byte, insert_always bool) tools.Ret {
+func (this *Slookup_i) write_internal(block_num uint32, new_value []byte) tools.Ret {
+	/* way simpler than stree, we just write the block */
 
-	/* if we are forcing an insert, if it is not found we will end up at a leaf, and if it is found
-	 * we will end up at the leafiest of the matching node */
-	/* if we are not forcing an insert, then if it's found, we will update what we find
-	 * and if it's not found, we will be at a leaf, which is just what we want. */
-
-	var ret, respfound, respnode, respnodepos = this.search(key, insert_always)
-	if ret != nil {
+	var ret tools.Ret
+	var entry *slookup_i_lib_entry.Slookup_i_entry
+	if ret, entry = this.Lookup_entry_load(block_num); ret != nil {
 		return ret
 	}
-	var found bool = respfound
-	// fn and fpos refer to the the parent node and its position to whom this new child will be added.
-	var fn *stree_v_node.Stree_node = respnode
-	var fpos uint32 = respnodepos
-
-	if (found == false) || insert_always {
-		/* 11/18/2020 so in the case where we fail we have to try and not mess up the tree. Originally
-		 * I was writing the pointing-to node first thus screwing up the tree if the new node write
-		 * fails. Then I added the dealloc, but now I realize all I have to do, is try and write the new
-		 * node first, if that fails, bail, no problem.
-		 * if that works write the parent/pointing-to node and if that fails, then just dealloc
-		 * and the tree should be okay, except for multiple deallocs needed and if the parent update
-		 * partially worked, but that's a lower layer problem. */
-		/* 11/18/2020 a few minutes later. okay so I figured out why we do it backwards.
-		 * No, wait, when inserting a new mother and offspring... why do we have to update the
-		 * parent first? not seeing it. xxxz Revisit and try and write new nodes first, then parent.
-		 * I guess because the parent can move? no this is an insert there's no deleting so nothing
-		 * will move. I dunno.
-		 * Not seeing why it won't work, I'll try it and wait for something to show up.
-		 * So we will write the new parent node, write the offspring and if all that works
-		 * update the parent to point to the new node. That way we can bail early and skip that
-		 * step if the node write fails and not have messed up the tree at all in some complicated
-		 * way that would be hard to recover from. This is all only for inserts. */
-		// not found, or inserting duplicate, insert at returned node
-		// we're not supplying the new_value to the mother node that gets done later
-
-		if found && insert_always {
-			this.log.Debug("this is a forced insert and there's already a key matching ", key, ", inserting a duplicate.")
-		}
-
-		var nn *stree_v_node.Stree_node = stree_v_node.New_Stree_node(this.log, key, make([]byte, 1), this.m_max_key_length, this.m_data_block_size, this.m_offspring_per_node)
-
-		// make room, and add new node at first free spot
-		var ret, iresp = this.m_storage.Allocate(1) // ask for one node for the mother node
-		if ret != nil {
-			return ret
-		}
-
-		var new_item_pos uint32 = iresp[0]
-		// now point the parent to the new node
-		if fpos == 0 {
-			// we have to do node value update last since it's more complicated now.
-			// not ideal in that we're setting the root to point to data that hasn't been written yet.
-			/* 11/18/2020 okay... why did I say that, oh I think it's because if things get moved because
-			   an update causes a delete and thus nodes to move, we need to have written the final thing already.
-			   No, that can't be it, this is an insert, so nothing will get deleted or moved. Not sure what I was
-			   thinking when I wrote that. We might still be able to write the node first.
-			   so thinking about it more I think that is unneccesary. we always write the new mother node
-			   then call new_value_write to expand the offspring if need be. In either case, the mother node
-			   is not going to move and we can point the parent to it after we're sure the offspring wrote
-			   correctly. I'm not seeing why that doesn't work. What was I thinking... */
-
-			// try and write the new node first.
-			ret = this.perform_new_value_write(nn, new_item_pos, new_value)
-			if ret != nil {
-				/* if we didn't succeed, undo the allocate so we don't mess up the tree */
-
-				this.deallocate_on_failure()
-				return ret
-			}
-			// if that works, update the parent (root node) to point to it */
-			ret = this.m_storage.Set_root_node(new_item_pos) // adding first node at root.
-			if ret != nil {
-				this.deallocate_on_failure()
-				return ret
-			}
-
-			return nil
-		}
-		if key > fn.Get_key() {
-			fn.Set_right_child(new_item_pos)
-		} else {
-			fn.Set_left_child(new_item_pos) // duplicates will get inserted on the left.
-		}
-
-		// set the new node's parent to the ... parent.
-		nn.Set_parent(fpos) // not on disk yet.
-
-		/* write the new node and offspring to disk, expanding allocation if need be.
-		 * the new node would have been created with a fully allocated but completed zeroed
-		 * offspring array, so perform_new_value_write will then allocate the required nodes
-		 * for the offspring data. */
-		/* So here we set nn's parent but we don't immediately write to disk.
-		 * writing nn to disk happens in new_value_write, it is worth noting that in the case
-		 * where we shrink the offspring list, the new node can move and it gets reloaded and
-		 * we'd lose the above set_parent(fpos) but that only happens when shrinking, this is
-		 * a new node to be inserted and possibly have offspring added to, so that mother/new node
-		 * reload never happens so we don't lose the set_parent update. */
-		ret = this.perform_new_value_write(nn, new_item_pos, new_value) // xxxz this needs to deallocate it's allocations on failure if any.
-		if ret != nil {
-			this.deallocate_on_failure()
-			return ret
-		}
-
-		/* set the parent's new child info to point to mother of new node, actually write to disk now that we
-		 * know the new node we're going to point to is there really on disk now. */
-		ret = this.node_store(fpos, fn)
-		if ret != nil {
-			this.deallocate_on_failure()
-			return ret
-		}
-
-		return nil
-	}
-	// found the node, just update value
-	return this.perform_new_value_write(fn, fpos, new_value)
+	return this.perform_new_value_write(block_num, entry, new_value)
 }
 
-func (this *Slookup_i) deallocate_on_failure() {
-	var deRet tools.Ret = this.m_storage.Deallocate()
-	if deRet != nil {
-		tools.Error(this.log, "unable to deallocate tree item after insert failure, tree is corrupt: ", deRet.Get_errmsg())
-	}
-}
-
-func (this *Slookup_i) Insert(key string, value []byte) tools.Ret {
-	return this.update_or_insert_always(key, value, true)
-}
-
-func (this *Slookup_i) Fetch(key string) (Ret tools.Ret, Retfoundresp bool, resp []byte) {
+/* this is a main zosbd2 entry point. fetch a block */
+func (this *Slookup_i) Read(block_num uint32) (Ret tools.Ret, resp *[]byte) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
-	/* client should call this to fetch a block from the backing store.
-	if found(0) is true, mothernoderesp only has the metadata for that node.
-	you must call node.Load if you need the mother node's data. */
-	var ret, foundresp, mothernoderesp, _ = this.search(key, false)
+	this.m_transaction_log_storage.Start_transaction()
+	defer this.m_transaction_log_storage.End_transaction()
+	var respdata *[]byte
+	var ret tools.Ret
+	if ret, respdata = this.read_internal(block_num); ret != nil {
+		return ret, nil
+	}
+	// if we got here okay, commit the transaction.
+	this.m_transaction_log_storage.Set_commit()
+
+	return nil, respdata
+}
+
+func (this *Slookup_i) read_internal(block_num uint32) (tools.Ret, *[]byte) {
+
+	var ret tools.Ret
+	var entry *slookup_i_lib_entry.Slookup_i_entry
+	ret, entry = this.Lookup_entry_load(block_num)
 	if ret != nil {
-		return ret, false, nil
+		return ret, nil
+	}
+	// now get the data
+	var respdata *[]byte
+	if ret, respdata = this.Data_block_load(entry); ret != nil {
+		return ret, nil
 	}
 
-	var found bool = foundresp
-	if found == false {
-		return nil, false, nil
-	}
-
-	var found_mother_node stree_v_node.Stree_node = *mothernoderesp // now this has the node's value as well.
-	var fRet, respdata = this.fetch_stree_data(found_mother_node)
-	if fRet != nil {
-		return fRet, false, nil
-	}
-	return fRet, true, respdata
+	///xxxxz make sure this returns the actual length expected
+	return nil, respdata
 }
 
-func (this *Slookup_i) fetch_stree_data(found_mother_node stree_v_node.Stree_node) (tools.Ret, []byte) {
-	// we don't know how much data there is, but we know it can't be bigger than this.
-	/* actually we CAN know what it is, actually, we can almost know. we need the variable size value
-	 * in the last offspring node, and that we don't find out until we read it in, so we can either size
-	 * to just the number of offspring nodes, or just max out completely, either way we have to resize so it
-	 * almost doesn't matter. we waste a bit more memory here, temporarily. */
-	var alldata *bytes.Buffer = bytes.NewBuffer(make([]byte, 0, this.m_data_block_size*(this.m_offspring_per_node+1)))
+// // I forget what this is for, I think it's for sponge
+// /* ahhh, I looked it up, it's for the write back cache. because deletes are expensive, we
+// process the write back cache from the end, so the delete is relatively cheap.
+// what order we process the write back cache in doesn't matter, so this is perfectly fine. */
+// func (this *Slookup_i) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
+// 	/* if there is no data in the stree, return foundresp false, otherwise return true
+// 	 * and send back the data for the last physical block in the stree. */
+// 	/* THIS ONLY WORKS IF YOU HAVE AN STREE WITH NO OFFSPRING. if there are offspring, the last physical
+// 	 * node might not be the parent, and you could look up the parent, but it would defeat the purpose
+// 	 * of this optimization for zos write back cache. */
 
-	// add the data in the mother node.
-	var node_data []byte = found_mother_node.Get_value()
-	var bdata []byte = []byte(node_data)
-	ralldata := append((*alldata).Bytes(), bdata...)
+// 	if this.m_offspring_per_node != 0 {
+// 		return tools.Error(this.log, "you can not fetch the last physical block of an stree that has offspring."), false, nil
+// 	}
+// 	this.interface_lock.Lock()
+// 	defer this.interface_lock.Unlock()
 
-	/* here we have to fetch and append all the offspring if any.
-	 * we always append the full max length value for each node.
-	 * we don't store the length of partial node values. */
-	var lp uint32
-	for lp = 0; lp < this.m_offspring_per_node; lp++ {
-		// get the offspring node pos
+// 	var r, iresp = this.m_storage.Get_root_node()
+// 	if r != nil {
+// 		return r, false, nil
+// 	}
 
-		var osresp *uint32
-		var ret tools.Ret
-		ret, osresp = found_mother_node.Get_offspring_pos(lp)
-		if ret != nil {
-			return ret, nil
-		}
-		var offspring_pos uint32 = *osresp
-		if offspring_pos == 0 { // did we run out
-			break
-		}
-		// go get the node
-		var offspring_node_resp *stree_v_node.Stree_node
-		ret, offspring_node_resp = this.Node_load(offspring_pos)
-		if ret != nil {
-			return ret, nil
-		}
-		var found_offspring_node stree_v_node.Stree_node = *offspring_node_resp
-		// get the data and add it.
-		var node_data []byte = found_offspring_node.Get_value()
-		var bdata []byte = []byte(node_data)
-		ralldata = append(ralldata, bdata...)
-	}
-	// now we just need to resize this array down to the actual size of the data
-	// we allocated the max possible, but we really only want to return the exact data
-	var exactdata []byte = ralldata[:] // this is probably pointless, it's not capacity, it's length
+// 	// if root node is zero, then tree is empty, therefore no data.
+// 	var i uint32 = iresp
+// 	if i == 0 {
+// 		return nil, false, nil
+// 	}
 
-	return nil, exactdata
-}
+// 	/* the free position is one greater than the last physical block. We know there is data
+// 	 * because the root node is not zero, so we can safely subtract one to get the last
+// 	 * physical node. */
+// 	r, iresp = this.Get_free_position()
+// 	if r != nil {
+// 		return r, false, nil
+// 	}
+// 	var last_node uint32 = iresp - 1
 
-func (this *Slookup_i) search(key string, to_insert bool) (fRet tools.Ret, respfound bool, respnode *stree_v_node.Stree_node, respnodepos uint32) {
-	/* internal use for insert and update and delete and fetch, use fetch to actually get the data as a client. */
-	// upon search success (finding the node) it returns found boolean, the node and the position of that node
-	// if not found it returns not found boolean the node and position of the last search point.
+// 	/* load in the last_node, then call common fetcher to return it.
+// 	 * this doesn't do a double read, it mostly does nothing but this way
+// 	 * all fetches return data the same way. */
 
-	/* 12/12/2021 to correctly support duplicates, the problem I found was when we find a node, we stop at the
-	   * first one, if there are duplicates, we need to keep going until we get to the leaf one, so that insert
-	   * will be able to correctly insert in tree order. so find the 10, or the 12.
-	   * The real answer I now realize is that search to find and search to insert are two different functions.
-	   * search to insert has to go until it gets to a leaf.
-		               12
-		             /     \
-		           10      20
-		          /  \     /
-		         9   11   12
-		            /      \
-		          10       12 */
-	var ret, iresp = this.m_storage.Get_root_node()
-	if ret != nil {
-		return ret, false, nil, 0
-	}
-	var i uint32 = iresp
-	var sn *stree_v_node.Stree_node = nil
-	var spos uint32 = i
+// 	r, nresp := this.Node_load(last_node)
+// 	if r != nil {
+// 		return r, false, nil
+// 	}
+// 	var last_Stree_node stree_v_node.Stree_node = *nresp
 
-	for {
-		if i == 0 {
-			// not found
-			// last known good node to which an insert would add, if null then tree is empty
-			/* we also have to load the last full node we searched through to get the payload
-			   because the caller is going to update this node. */
-			if spos != 0 {
-				ret, sn = this.Node_load(spos)
-				if ret != nil {
-					return ret, false, nil, 0
-				}
-			}
-			return nil, false, sn, spos
-		}
-		var ret, nresp = this.Node_load_metadata(i)
-		if ret != nil {
-			return ret, false, nil, 0
-		}
-		sn = nresp
-		spos = i
-		if (to_insert == false) && (key == sn.Get_key()) {
-			// found, return the found node and its position, note sn does not have the value payload.
-
-			/* so it turns out there are more callers to search() than I thought, and most of them expect the value
-			to be there, because they rewrite the block they're updating, so go fetch the entire block we're going to
-			return before we return it. */
-			ret, sn = this.Node_load(spos)
-			if ret != nil {
-				return ret, false, nil, 0
-			}
-			// we were able to read the entire block, return found with the data.
-			return nil, true, sn, spos
-		} else {
-			if key > sn.Get_key() {
-				i = sn.Get_right_child()
-			} else {
-				i = sn.Get_left_child() // duplicates will hang off the left
-			}
-		}
-		// quick sanity check since this actually happened to me 12/22/2020, as a result of failing deletes during testing that I didn't clean up
-		/* it would be smarter to make a list of the chain we followed and make sure we never see a duplicate so we can
-		 * make sure we don't further ruin our tree and detect problems as early as possible... */
-		if i == spos {
-			return tools.Error(this.log, "sanity failure tree node ", spos, " has a child that refers to itself."), false, nil, 0
-		}
-	} // for true
-	// return Error(s.log, "sanity failure can not reach this return path."), false, nil, 0
-}
-
-// I forget what this is for, I think it's for sponge
-/* ahhh, I looked it up, it's for the write back cache. because deletes are expensive, we
-process the write back cache from the end, so the delete is relatively cheap.
-what order we process the write back cache in doesn't matter, so this is perfectly fine. */
-func (this *Slookup_i) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
-	/* if there is no data in the stree, return foundresp false, otherwise return true
-	 * and send back the data for the last physical block in the stree. */
-	/* THIS ONLY WORKS IF YOU HAVE AN STREE WITH NO OFFSPRING. if there are offspring, the last physical
-	 * node might not be the parent, and you could look up the parent, but it would defeat the purpose
-	 * of this optimization for zos write back cache. */
-
-	if this.m_offspring_per_node != 0 {
-		return tools.Error(this.log, "you can not fetch the last physical block of an stree that has offspring."), false, nil
-	}
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-
-	var r, iresp = this.m_storage.Get_root_node()
-	if r != nil {
-		return r, false, nil
-	}
-
-	// if root node is zero, then tree is empty, therefore no data.
-	var i uint32 = iresp
-	if i == 0 {
-		return nil, false, nil
-	}
-
-	/* the free position is one greater than the last physical block. We know there is data
-	 * because the root node is not zero, so we can safely subtract one to get the last
-	 * physical node. */
-	r, iresp = this.Get_free_position()
-	if r != nil {
-		return r, false, nil
-	}
-	var last_node uint32 = iresp - 1
-
-	/* load in the last_node, then call common fetcher to return it.
-	 * this doesn't do a double read, it mostly does nothing but this way
-	 * all fetches return data the same way. */
-
-	r, nresp := this.Node_load(last_node)
-	if r != nil {
-		return r, false, nil
-	}
-	var last_Stree_node stree_v_node.Stree_node = *nresp
-
-	r, resp := this.fetch_stree_data(last_Stree_node)
-	if r == nil {
-		return r, false, nil
-	}
-	return nil, true, &resp
-}
-
+// 	r, resp := this.fetch_stree_data(last_Stree_node)
+// 	if r == nil {
+// 		return r, false, nil
+// 	}
+// 	return nil, true, &resp
+// }
 
 func (this *Slookup_i) physically_delete(pos uint32) tools.Ret {
 	/* step 2, is just physically copy the data from the last node to the hole,
