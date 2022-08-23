@@ -444,77 +444,6 @@ func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	return nil, pos
 }
 
-func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
-	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
-
-	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
-	so we might have to concatenate. something we'll have to fix with goroutines someday.
-	oh look, we did goroutines already.
-	start block is the first block, end block is the number after the last block, as in end block is not inclusive. */
-
-	start_pos = block_num * this.Get_lookup_entry_size_in_bytes()
-	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
-
-	end_pos = start_pos + this.Get_lookup_entry_size_in_bytes()
-	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
-	end_block += 1 // end_block is one higher than the one we want to read
-
-	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
-		return
-	}
-	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
-		return
-	}
-	if ret, alldata = this.m_transaction_log_storage.Read_block_range(start_block, end_block); ret != nil {
-		return
-	}
-
-	// get the position of this entry in this alldata, modulo works here too...
-	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
-	return
-
-	// this is all in tlog now.
-	// var number_of_blocks = end_block - start_block + 1
-
-	// var rets = make(chan tools.Ret)
-	// var alldata_lock sync.Mutex
-
-	// *alldata = make([]byte, number_of_blocks*this.Get_data_block_size_in_bytes())
-
-	// for lp := start_block; lp < (end_block + 1); lp++ {
-	// 	var destposstart = lp * this.Get_data_block_size_in_bytes()
-	// 	var destposend = destposstart + this.Get_data_block_size_in_bytes()
-	// 	go func(lpin uint32, destposstart uint32, destposend uint32) {
-	// 		var data *[]byte
-	// 		ret, data = this.m_transaction_log_storage.Read_block(lpin)
-	// 		if ret == nil {
-	// 			// copy the data into the correct place in the alldata array
-	// 			alldata_lock.Lock()
-	// 			var copied = copy((*alldata)[destposstart:destposend], *data)
-	// 			if copied != len(*data) {
-	// 				rets <- tools.Error(this.log, "didn't get all the data from an entry block read, expected: ", data, " got: ", copied)
-	// 				alldata_lock.Unlock()
-	// 				return
-	// 			}
-	// 			alldata_lock.Unlock()
-	// 		}
-
-	// 		rets <- ret
-	// 	}(lp, destposstart, destposend)
-
-	// 	var final_ret tools.Ret = nil
-	// 	for wait := 0; wait < int(end_block-start_block+1); wait++ {
-	// 		ret = <-rets
-	// 		if ret != nil {
-	// 			final_ret = ret
-	// 		}
-	// 	}
-	// 	// alldata should be filled correctly if all went well
-	// 	ret = final_ret
-	// }
-
-}
-
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 // the limits checkers
 
@@ -594,6 +523,82 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 			" which is at or after the last possible data block location: ", last_possible_data_block_position)
 	}
 	return nil
+}
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/* The stores
+   and gets */
+
+func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
+	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
+
+	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
+	so we might have to concatenate. something we'll have to fix with goroutines someday.
+	oh look, we did goroutines already.
+	start block is the first block, end block is the number after the last block, as in end block is not inclusive. */
+
+	start_pos = block_num * this.Get_lookup_entry_size_in_bytes()
+	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
+
+	end_pos = start_pos + this.Get_lookup_entry_size_in_bytes()
+	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
+	end_block += 1 // end_block is one higher than the one we want to read
+
+	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
+		return
+	}
+	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
+		return
+	}
+	if ret, alldata = this.m_transaction_log_storage.Read_block_range(start_block, end_block); ret != nil {
+		return
+	}
+
+	// get the position of this entry in this alldata, modulo works here too...
+	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
+	return
+
+	// this is all in tlog now.
+	// var number_of_blocks = end_block - start_block + 1
+
+	// var rets = make(chan tools.Ret)
+	// var alldata_lock sync.Mutex
+
+	// *alldata = make([]byte, number_of_blocks*this.Get_data_block_size_in_bytes())
+
+	// for lp := start_block; lp < (end_block + 1); lp++ {
+	// 	var destposstart = lp * this.Get_data_block_size_in_bytes()
+	// 	var destposend = destposstart + this.Get_data_block_size_in_bytes()
+	// 	go func(lpin uint32, destposstart uint32, destposend uint32) {
+	// 		var data *[]byte
+	// 		ret, data = this.m_transaction_log_storage.Read_block(lpin)
+	// 		if ret == nil {
+	// 			// copy the data into the correct place in the alldata array
+	// 			alldata_lock.Lock()
+	// 			var copied = copy((*alldata)[destposstart:destposend], *data)
+	// 			if copied != len(*data) {
+	// 				rets <- tools.Error(this.log, "didn't get all the data from an entry block read, expected: ", data, " got: ", copied)
+	// 				alldata_lock.Unlock()
+	// 				return
+	// 			}
+	// 			alldata_lock.Unlock()
+	// 		}
+
+	// 		rets <- ret
+	// 	}(lp, destposstart, destposend)
+
+	// 	var final_ret tools.Ret = nil
+	// 	for wait := 0; wait < int(end_block-start_block+1); wait++ {
+	// 		ret = <-rets
+	// 		if ret != nil {
+	// 			final_ret = ret
+	// 		}
+	// 	}
+	// 	// alldata should be filled correctly if all went well
+	// 	ret = final_ret
+	// }
+
 }
 
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
@@ -780,6 +785,36 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 	return nil, &nnodes
 }
 
+func (this *Slookup_i) set_reverse_lookup_entry(data_block uint32, block_its_stored_in uint32) tools.Ret {
+	/* the idea here is that when we allocate a data block to store data in, we have to update the reverse
+	   lookup table entry for that block so that if somebody needs to delete a block and pull this one, they know
+	   what entry that block is stored in.
+	   so here we are given a data block position (that was just allocated) and the entry block position that it was
+	   allocated to. we find, read, update and rewrite the entry block that has the reverse lookup for this data_block
+	   which means whoever calls this must have everything written to disk because we may pick up and rewrite any
+	   entry. the reverse lookup can be anywhere. */
+
+	var reverse_lookup_entry_num uint32 // used as block_num to find the entry
+
+	// we store block_group_count number of reverse lookup array entries in each entry.
+	reverse_lookup_entry_num = data_block / this.Get_block_group_count()
+	// the position in the entry
+	var reverse_lookup_entry_pos uint32 = data_block % this.Get_block_group_count()
+
+	var ret tools.Ret
+	var entry *slookup_i_lib_entry.Slookup_i_entry
+	if ret, entry = this.Lookup_entry_load(reverse_lookup_entry_num); ret != nil {
+		return ret
+	}
+	if ret = entry.Set_reverse_lookup_pos(reverse_lookup_entry_pos, reverse_lookup_entry_num); ret != nil {
+		return ret
+	}
+	if ret = this.Lookup_entry_store(reverse_lookup_entry_num, entry); ret != nil {
+		return ret
+	}
+	return nil
+}
+
 func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
 	// update the data for this block with new value
 	// return error if there was a read or write problem.
@@ -939,11 +974,27 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				entry.Set_block_group_pos(rp, new_data_block_pos)
 				this.log.Debug("adding data block " + tools.Uint32tostring(new_data_block_pos) + " to position " +
 					tools.Uint32tostring(rp) + " in entry block_group array list.")
+
 			}
 			// write entry to disk so it is correct on disk since nobody else is going to do it later.
 			if ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry); ret != nil {
 				return nil
 			}
+
+			/* and now that we know what entry those new blocks belong to, we have to also update
+			   the reverse lookup entries for those blocks so lets do that here too.
+			   we have to wait until after we do the entry store because it is possible that the reverse lookup
+			   value will need to be stored in the block we're updating. */
+
+			i = 0
+			for rp := current_block_group_count; rp < block_group_count_required; rp++ {
+				var new_data_block_pos uint32 = iresp[i]
+				i++
+				if ret = this.set_reverse_lookup_entry(new_data_block_pos[i], entry.Get_entry_pos()); ret != nil {
+					return ret
+				}
+			}
+
 			// end of add nodes to make entry bigger because it was too small for this new value
 		} else {
 			this.log.Debug("node update takes the same number of offspring, no offspring change.")

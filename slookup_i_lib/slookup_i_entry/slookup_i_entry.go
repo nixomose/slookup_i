@@ -91,7 +91,7 @@ type Slookup_i_entry struct {
 
 	/* can't be nil, this is the array of size block_group_count that holds the position of the
 	lookup table entry that refers to this data_block. */
-	data_block_lookup_list *[]uint32
+	data_block_reverse_lookup_list *[]uint32
 
 	/* this is the position in the lookup table that this entry instance refers to. it is not stored on disk,
 	and is really only used for logging, but basically we have no idea who we are, except for this. */
@@ -111,10 +111,10 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_valu
 	 * This is the offspring array size, which does not include the space we can also use in the mother node. */
 	// this really can't be zero.
 	n.block_group_count = Block_group_count
-	var v []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
+	var v []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero (not sure this is correct, I think this should be sized to the data it holds, there should be no trailing zeroes)
 	n.block_group_list = &v
 	var r []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
-	n.data_block_lookup_list = &r
+	n.data_block_reverse_lookup_list = &r
 
 	// not deserialized from disk, just stored in the struct so an entry can identify itself.
 	n.entry_pos = Entry_pos
@@ -134,7 +134,7 @@ func (this *Slookup_i_entry) Dump() string {
 	str += "], max_value_length: " + tools.Uint32tostring(this.max_value_length) +
 		", data_block_lookup_list: ["
 
-	for pos, n := range *this.data_block_lookup_list {
+	for pos, n := range *this.data_block_reverse_lookup_list {
 		if pos > 0 {
 			str += " "
 		}
@@ -199,7 +199,7 @@ func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.
 }
 
 func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_block uint32) tools.Ret {
-
+	/* given an index into the block_group array, set the array position's value after validating */
 	if block_group_pos > this.block_group_count {
 		return tools.Error(this.log, "trying to set block_group  pos ", block_group_pos,
 			" which is greater than the number of blocks in the block_group ", this.block_group_count)
@@ -209,6 +209,17 @@ func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_bl
 			" which is greater than the block_group list array length ", len(*this.block_group_list))
 	}
 	(*this.block_group_list)[block_group_pos] = data_block
+	return nil
+}
+
+func (this *Slookup_i_entry) Set_reverse_lookup_pos(reverse_lookup_pos uint32, entry_block_num uint32) tools.Ret {
+	/* same as above except instead of setting a block_group_pos, we're setting a reverse_lookup_pos */
+	if reverse_lookup_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to set reverse_lookup_pos ", reverse_lookup_pos,
+			" which is greater than the block_group_count ", this.block_group_count)
+	}
+	// the reverse lookup arrays are always maxed out to block_group_count length so we don't have to check it. */
+	(*this.data_block_reverse_lookup_list)[reverse_lookup_pos] = entry_block_num
 	return nil
 }
 
@@ -251,7 +262,7 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 
 	// and then the reverse lookup array
 	for rp := 0; rp < int(this.block_group_count); rp++ {
-		binary.Write(bb, binary.BigEndian, uint32((*this.data_block_lookup_list)[rp]))
+		binary.Write(bb, binary.BigEndian, uint32((*this.data_block_reverse_lookup_list)[rp]))
 	}
 	if uint32(len(bval)) > this.max_value_length {
 		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_value_length, " it is ", len(bval)), nil
@@ -287,9 +298,9 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 	}
 
 	var r []uint32 = make([]uint32, this.block_group_count) // array is fully allocated but set all to zero
-	this.data_block_lookup_list = &r
+	this.data_block_reverse_lookup_list = &r
 	for rp := 0; uint32(rp) < this.block_group_count; rp++ {
-		(*this.data_block_lookup_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
+		(*this.data_block_reverse_lookup_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
 		bpos += 4
 	}
 
