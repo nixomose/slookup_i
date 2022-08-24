@@ -29,14 +29,11 @@ package slookup_i_src
 
 import (
 	"fmt"
-	"math"
 	"sync"
-	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
-	"github.com/nixomose/stree_v/stree_v_lib/stree_v_node"
 )
 
 // this is the block that the lookup table starts at, block 0 is the header.
@@ -766,27 +763,27 @@ parts of a group block list which is what this looks like it's trying to do. */
 // 	return nil, data
 // }
 
-func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32) (tools.Ret, *uint32) {
+func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32) (tools.Ret, uint32) {
 	/* return how many blocks in a block group we need for a value of this length */
 
 	// unlike stree there is no mother node, so it is possible to have data of zero length taking up zero blocks.
 	if value_length == 0 {
 		var rval uint32 = 0
-		return nil, &rval
+		return nil, rval
 	}
 
 	var group_size = this.Get_block_group_size_in_bytes()
 	if value_length > group_size {
 		return tools.Error(this.log,
 			"value size ", value_length, " is too big to fit in ", (this.m_header.M_block_group_count), " blocks of ",
-			this.m_header.M_data_block_size, " length totaling ", group_size), nil
+			this.m_header.M_data_block_size, " length totaling ", group_size), 0
 	}
 
 	var nnodes uint32 = value_length / this.m_header.M_data_block_size
 	if value_length%this.m_header.M_data_block_size != 0 {
 		nnodes++ // there was some more data that spilled over to the next node
 	}
-	return nil, &nnodes
+	return nil, nnodes
 }
 
 func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_stored_in uint32) tools.Ret {
@@ -822,8 +819,10 @@ func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_sto
 func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Ret, entry *slookup_i_lib_entry.Slookup_i_entry,
 	block_num uint32, block_group_pos uint32) {
 	/* opposite of above, given a data block, go get the entry that holds the reverse lookup information for
-	that block, get the index, get the block num that refers to the entry, search for the block_group array position
-	that has this data block, return the block_num entry, the block_group array index and the value in it.
+	that block, get the index, get the block num for the entry that refers to the data_block,
+	read the entry in, and search that entry's block_group list for the block_group array position
+	that has the requested data block to reverse lookup, return the block_num entry,
+	the block_group array index and the value in it.
 	actually don't return that last bit, duh, that's the value they passed us. */
 
 	var reverse_lookup_entry_num uint32 // used as block_num to find the entry
@@ -860,47 +859,49 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 		reverse_entry.Get_entry_pos(), " referring to forward lookup entry ", entry.Get_entry_pos()), nil, 0, 0
 }
 
-func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
-	// update the data for this block with new value
-	// return error if there was a read or write problem.
+// this is probably not used
+// func (this *Slookup_i) update(block_num uint32, new_value *[]byte) tools.Ret {
+// 	// update the data for this block with new value
+// 	// return error if there was a read or write problem.
 
-	/* 11/3/2020 update with offspring is not so simple. If we are storing more than what's there, we need
-	 * to add blocks, if we are storing less, we need to delete. We can't leave leftover junk laying around,
-	 * it will waste space, and the system can't account for it. You can't have a data block with no data in it.
-	 * it will mess up the mother->offspring list when you try and delete it. */
-	/* for slookup_i, for any blocks we are adding or removing (or moving for any reason) we need to update
-	the lookup table entry for the block_group list entry, and the reverse lookup table entry. */
+// 	/* 11/3/2020 update with offspring is not so simple. If we are storing more than what's there, we need
+// 	 * to add blocks, if we are storing less, we need to delete. We can't leave leftover junk laying around,
+// 	 * it will waste space, and the system can't account for it. You can't have a data block with no data in it.
+// 	 * it will mess up the mother->offspring list when you try and delete it. */
+// 	/* for slookup_i, for any blocks we are adding or removing (or moving for any reason) we need to update
+// 	the lookup table entry for the block_group list entry, and the reverse lookup table entry. */
 
-	if new_value == nil {
-		return tools.Error(this.log, "trying to update with null value")
-	}
+// 	if new_value == nil {
+// 		return tools.Error(this.log, "trying to update with null value")
+// 	}
 
-	var ret = this.check_lookup_table_limits(block_num)
-	if ret != nil {
-		return ret
-	}
+// 	var ret = this.check_lookup_table_limits(block_num)
+// 	if ret != nil {
+// 		return ret
+// 	}
 
-	var entry *slookup_i_lib_entry.Slookup_i_entry
-	ret, entry = this.Lookup_entry_load(block_num) // this is the lookup table entry with the offspring list in it.
-	if ret != nil {
-		return ret
-	}
-	return this.perform_new_value_write(block_num, entry, new_value)
-}
+// 	var entry *slookup_i_lib_entry.Slookup_i_entry
+// 	ret, entry = this.Lookup_entry_load(block_num) // this is the lookup table entry with the offspring list in it.
+// 	if ret != nil {
+// 		return ret
+// 	}
+// 	return this.perform_new_value_write(block_num, entry, new_value)
+// }
 
-func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value []byte) tools.Ret {
+func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value *[]byte) tools.Ret {
 	/* this handles group block writes which might involve growing or shrinking the block_group_list. */
 	// get a count of how many offspring there are now in mother node
 	var current_block_group_count uint32 = entry.Count_offspring()
 
 	// figure out how many nodes we need to store this write.
-	var new_value_length uint32 = uint32(len(new_value))
+	var new_value_length uint32 = uint32(len(*new_value))
 
-	var ret, iresp = this.calculate_block_group_count_for_value(new_value_length)
+	var block_group_count_required uint32
+	var ret tools.Ret
+	ret, block_group_count_required = this.calculate_block_group_count_for_value(new_value_length)
 	if ret != nil {
 		return ret
 	}
-	var block_group_count_required uint32 = *iresp // throwback to generations of porting from java, clean this up some day
 
 	/* first handle shrinking if need be */
 	this.log.Debug("current block group count: " + tools.Uint32tostring(current_block_group_count) +
@@ -1051,7 +1052,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	/* so by the time we're here, in all cases, we've allocated or freed the space, set the block_group list array has
 	 * all the places to put the new data, so now we just have to update the data. */
 
-	if len(new_value) == 0 { // unless of course it's empty
+	if new_value_length == 0 { // unless of course it's empty
 		this.log.Debug("new value length is zero.")
 		var ret = entry.Set_value(new_value)
 		if ret != nil {
@@ -1081,19 +1082,23 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	/* double stupid
 	lookup_entry_store does all this for us. in parallel. */
 
-	ret = this.Data_block_store(entry)
-	if ret != nil {
+	if ret = this.Data_block_store(entry); ret != nil {
 		return ret
 	}
 	// if we got here we're good.
 	return nil
 }
 
-// xxxxz //////// got up to here
-///////////	xxxz //xxxzgot up to here
-// this is a main entrypoint for zosbd2_slookup_i backing_store
-func (this *Slookup_i) Write(block_num uint32, new_value []byte) tools.Ret {
-	/* this function will write a block. */
+func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.Ret, moved_resp_from uint32, moved_resp_to uint32) {
+	/* for slookup_i physically deleteing an entry is this:
+	      1) set the block_group pos for this data_block_num being deleted
+	   	 xxxz
+
+	   }
+
+	   // this is a main entrypoint for zosbd2_slookup_i backing_store
+	   func (this *Slookup_i) Write(block_num uint32, new_value *[]byte) tools.Ret {
+	   	/* this function will write a block. */
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
@@ -1107,7 +1112,7 @@ func (this *Slookup_i) Write(block_num uint32, new_value []byte) tools.Ret {
 	return nil
 }
 
-func (this *Slookup_i) write_internal(block_num uint32, new_value []byte) tools.Ret {
+func (this *Slookup_i) write_internal(block_num uint32, new_value *[]byte) tools.Ret {
 	/* way simpler than stree, we just write the block */
 
 	var ret tools.Ret
@@ -1130,7 +1135,7 @@ func (this *Slookup_i) Read(block_num uint32) (Ret tools.Ret, resp *[]byte) {
 	if ret, respdata = this.read_internal(block_num); ret != nil {
 		return ret, nil
 	}
-	// if we got here okay, commit the transaction.
+	// if we got here okay, commit the transaction. do we need to commit on read transactions? there's a good reason for this but I forget what it is. I guess we'll find out.
 	this.m_transaction_log_storage.Set_commit()
 
 	return nil, respdata
@@ -1154,740 +1159,699 @@ func (this *Slookup_i) read_internal(block_num uint32) (tools.Ret, *[]byte) {
 	return nil, respdata
 }
 
-// // I forget what this is for, I think it's for sponge
-// /* ahhh, I looked it up, it's for the write back cache. because deletes are expensive, we
-// process the write back cache from the end, so the delete is relatively cheap.
-// what order we process the write back cache in doesn't matter, so this is perfectly fine. */
-// func (this *Slookup_i) fetch_last_physical_block() (tools.Ret, bool, *[]byte) {
-// 	/* if there is no data in the stree, return foundresp false, otherwise return true
-// 	 * and send back the data for the last physical block in the stree. */
-// 	/* THIS ONLY WORKS IF YOU HAVE AN STREE WITH NO OFFSPRING. if there are offspring, the last physical
-// 	 * node might not be the parent, and you could look up the parent, but it would defeat the purpose
-// 	 * of this optimization for zos write back cache. */
+// xxxxz //////// got up to here
+///////////	xxxz //xxxzgot up to here
 
-// 	if this.m_offspring_per_node != 0 {
-// 		return tools.Error(this.log, "you can not fetch the last physical block of an stree that has offspring."), false, nil
+/* the rest of this file is filled with all the crazy complicated stuff needed to make delete work in all cases
+for stree. slookup_i is soooooo much way simpler we're not even going to look at it, we're just going to implement
+delete and not even question what stree did. we should probably look through it for all the goofy edge cases
+I came across, but other than that it won't help us much. */
+
+// func (this *Slookup_i) physically_delete(pos uint32) tools.Ret {
+// 	/* step 2, is just physically copy the data from the last node to the hole,
+// 	 * then find the parent of the moved node and repoint it to the newly filled hole,
+// 	 * then the children's parents must also be set to its new location, the newly
+// 	 * filled hole. */
+
+// 	/* 11/6/2020 so physically deleting a node is a bit more interesting with offspring.
+// 	 * if the node is a mother node, we have to delete all the offspring, and the mother node.
+// 	 * makes sense to do it in reverse in case they're all at the end, deleting is easier.
+// 	 * if deleting an offspring node, we would have to update the parent, but we know it's going away
+// 	 * so we don't have to do that, all we do have to do is if we're MOVING an offspring node, update
+// 	 * the parent's offspring array to point to the new location.
+// 	 * It sounds a bit risky that we are going to recurse a bit when we delete a mother node because
+// 	 * we have to physically delete all the offspring nodes, but if the tree isn't corrupt, it should
+// 	 * work out fine. Famous last words. */
+
+// 	/* so here is where we care if it's a mother node or offspring being deleted we can take care of two things.
+// 	 * if it's a mother node the rewrite of the ones that point to it are the same as stree_iii
+// 	 * with the added caveat that we have to go through the effort of deleting the offspring as well.
+// 	 * and if it's an offspring node being moved, rewriting the parent is a little different.
+// 	 * actually we have to think about this a little more.
+// 	 * deleting a mother node just means we have to delete the offspring
+// 	 * but keep in mind that deleting offspring might cause the mother node to move.
+// 	 * so we can't just delete this position we got because it might be different after we do the offspring
+// 	 * so maybe order is important.
+// 	 * I keep missing that there's an important distinction between the nodes that are moving and the one(s)
+// 	 * being deleted. it was a lot simpler when there was only one thing being deleted.
+// 	 * so let's go through all the combinations.
+// 	 *
+// 	 * by the time physically delete is called, the mother node is not in the binary search tree anymore
+// 	 * it is just taking up space on disk. The offspring of that mother node were never in the tree and as
+// 	 * soon as the mother node is gone there's no more reference to the offspring nodes.
+// 	 * physically deleting nodes however can cause anything to move, so we have to be careful
+// 	 * if we make a list of what to delete because items in that list can get stale after one of them
+// 	 * is deleted. so I think what has to happen is that we DO have to update the mother node as offspring
+// 	 * are deleted so that we can always ask the mother node for currently correct things to delete.
+// 	 * that means
+// 	 * a) we have to physically delete offspring first
+// 	 * b) we have to phyiscally delete offspring from back to front (well we don't HAVE to but it keeps the list
+// 	 * consistent and we have to blank out the offspring list nodes as we delete them
+// 	 * c) we have to keep an eye on the mother node location because it is possible that it can move as a
+// 	 * result of deleting one of its offspring.
+// 	 * I don't think there's a way around c.
+// 	 * if we delete the mother first then we have no way of keeping track of if the other offspring moved as
+// 	 * a result of other offsprings nodes physically deleted earlier.
+// 	 * the only thing we can rely on is the mother node, and I guess the only way to be sure is
+// 	 * to make sure we keep track if the mother node moved as a result of deleting an offspring node.
+// 	 * one way to cheap out would be to say if the mother node is the last thing in the list
+// 	 * then move it manually (swap with the one before it) so that it will not get moved out from under us
+// 	 * unexpectedly, but I'm not sure that's any easier than just keeping track of if it moves because of an
+// 	 * offspring node delete.
+// 	 * then there's the problem of if the mother node is the last one but I guess it can't be since it gets
+// 	 * deleted only after its offspring is deleted.
+// 	 * so in summary, I think we just check if we're deleting a mother node, delete the offspring first
+// 	 * have that update the mother node as it happens, and somehow report if the mother node got moved
+// 	 * as a result. deleting is hard. testing will be hard too. */
+
+// 	/* 11/9/2020 okay so I drew it out and worked it all out, and it's not that bad.
+// 	   * The short of it is we need the parent function that handles physical deletes of
+// 	   * mother nodes, to generate calls to a function that physically deletes one like we used to.
+// 	   * the trick is to keep track of what got moved where so that if the original list contains
+// 	   * the item moved, its number gets updated so the newly moved position gets deleted.
+// 	                   deleteing m1 and offspring o2 o3 o4...
+// 	                    1  2  3  4  5  6  7        delete list
+// 	                A   m o2 o3 o4 m1 m5 o6          4 3 2 5
+// 	                B   m o2 o3 o6 m1 m5      7->4   x 3 2 5
+// 	                C   m o2 m5 o6 m1         6->3   x x 2 5
+// 	                D   m m1 m5 o6            5->2   x x x 2  (because 5 moved to 2 so we change 5 to 2)
+// 	                E   m o6 m5               4->2   x x x x
+
+// 	     another example
+
+// 	                   deleteing m1 and offspring o1 o2 o3...
+// 	                    1  2  3  4  5              delete list
+// 	                A   m o1 o2 o3 m1                4 3 2 5
+// 	                B   m o1 o2 m1            5->4   x 3 2 4  (because 5 moved to 4 so we change 5 to 4)
+// 	                C   m o1 m1               4->3   x x 2 3  (because 4 moved to 3 so we change 4 to 3)
+// 	                D   m m1                  3->2   x x x 2  (because 3 moved to 2 so we change 3 to 2)
+// 	                E   m                     2->2   x x x x
+// 	*/
+// 	/* caller already loaded the node from which we can get the list of offspring to delete */
+// 	/* 11/20/2020 so I dunno WHY the caller loaded the node and passed it to me, but it loaded it
+// 	 * before it was logically deleted, and therefore is stale, we reload the modified mother node here. */
+
+// 	var ret, noderesp = this.Node_load(pos)
+// 	if ret != nil {
+// 		return ret
 // 	}
+// 	var mothertodelete stree_v_node.Stree_node = *noderesp
+
+// 	if mothertodelete.Is_offspring() {
+// 		return tools.Error(this.log, "request to delete an offspring node not allowed.")
+// 	}
+
+// 	// copy the list of offspring so we have what to delete
+// 	var delete_list []uint32 = make([]uint32, this.m_offspring_per_node+1) // need to including deleting of mother node
+
+// 	var delete_list_pos int = 0
+// 	//        for (int lp = 0; lp < m_offspring_per_node; lp++) // go to end of list, it might not end in zero
+// 	/* 11/20/2020 this was a problem, we used to delete offspring from left to right, but that doesn't work
+// 	 * because physically_delete_one stops fixing the offspring list when it gets to a zero from left to
+// 	 * right, so we must delete in right to left order, just like shrink does so physically delete
+// 	 * will always have a correct offspring list in mother node to work with.
+// 	 * okay so that works, if all offspring are full, or rather it did when we went from left to right.
+// 	 * Now we have to go from right to left, but we have to start either at the end of the offspring list
+// 	 * or don't use zero as the end of the list because we're not going left to right we're going right to
+// 	 * left and if not all offspring are used, the last one will be empty/zero and we will bail right away.
+// 	 * so we romp through the whole offspring list backwards, and only add non-zero things, but don't stop short. */
+// 	var rp int
+// 	for rp = int(this.m_offspring_per_node) - 1; rp >= 0; rp-- { // delete them in reverse just like shrink does
+
+// 		var ret, resp = mothertodelete.Get_offspring_pos(uint32(rp))
+// 		if ret != nil {
+// 			return ret
+// 		}
+// 		var offspring_value uint32 = *resp
+// 		if offspring_value == 0 {
+// 			continue
+// 		}
+// 		delete_list[delete_list_pos] = offspring_value
+// 		delete_list_pos++
+// 		this.log.Debug("removing node: ", offspring_value)
+// 	}
+// 	/* we must delete the mother node last because in deleting the offspring
+// 	 * nodes it will update the parent with the new offspring list
+// 	 * with the deleted one zeroed out, so the mother must be around to
+// 	 * note all of its offspring going away. */
+// 	delete_list[delete_list_pos] = pos // the mother node to delete
+// 	delete_list_pos++
+// 	this.log.Debug("removing mother node: ", pos)
+
+// 	/* Now go through the delete list individually deleting each item, updating the list if
+// 	 * something in the list got moved. */
+// 	this.log.Debug("going to delete ", delete_list_pos, " items.")
+// 	for rp := 0; rp < delete_list_pos; rp++ {
+// 		var pos_to_delete uint32 = delete_list[rp]
+
+// 		var ret, moved_resp_from, moved_resp_to = this.physically_delete_one(pos_to_delete)
+// 		if ret != nil {
+// 			return ret
+// 		}
+// 		/* now update the remainder of the list if anything in it moved. we can do the whole list,
+// 		 * it doesn't hurt to update something that was already processed/deleted. */
+// 		var from uint32 = moved_resp_from
+// 		var to uint32 = moved_resp_to
+// 		this.log.Debug("moved mover from ", from, " to ", to)
+
+// 		for wp := rp + 1; wp < delete_list_pos; wp++ { // as we deleted lp in this round, we don't need to update it.
+
+// 			if delete_list[wp] == from {
+// 				delete_list[wp] = to
+// 				this.log.Debug("mover node ", from, " was in the delete list so we moved it to ", to)
+// 			}
+// 		}
+// 		// only for small trees this.print(); // xxxz
+// 	}
+// 	return nil
+// }
+
+// func (this *Slookup_i) clean_deleted_offspring_from_mother(toremove_pos uint32) tools.Ret {
+// 	// caller already loaded pos into toremove, this is a double read, but that's what caches are for.
+
+// 	var ret, resp = this.Node_load(toremove_pos)
+// 	if ret != nil {
+// 		return ret
+// 	}
+// 	var toremove stree_v_node.Stree_node = *resp
+// 	if toremove.Is_offspring() == false {
+// 		return tools.Error(this.log,
+// 			"sanity failure, offspring was told to clean itself out of mother but it is not an offspring node.")
+// 	}
+
+// 	// get our mother.
+// 	ret, resp = this.Node_load(toremove.Get_parent())
+// 	if ret != nil {
+// 		return ret
+// 	}
+// 	var mother *stree_v_node.Stree_node = resp
+// 	if mother.Is_offspring() != false {
+// 		return tools.Error(this.log, "sanity failure, deleting offspring node who's parent is not a mother node.")
+// 	}
+// 	var found bool = false
+// 	/* go through all the mother's offspring, find ourselves and erase us from the list.
+// 	 * deletes all work from right to left in the offspring list, so this should leave a correct offspring list */
+// 	var rp uint32
+// 	for rp = 0; rp < this.m_offspring_per_node; rp++ {
+
+// 		var ret, offspring_resp = mother.Get_offspring_pos(rp)
+// 		if ret != nil {
+// 			return ret
+// 		}
+// 		var offspring_peek uint32 = *offspring_resp
+// 		if offspring_peek == 0 { // end of list
+// 			break
+// 		}
+// 		if offspring_peek == toremove_pos {
+// 			found = true
+// 			mother.Set_offspring_pos(rp, 0) // remove it
+// 			break                           // there can (better) be only one, and it better be the last one too.
+// 		}
+// 	}
+// 	if found == false {
+// 		return tools.Error(this.log, "sanity failure, tree is corrupt, while physically deleting ", toremove_pos,
+// 			" we tried find ourselves in our mother's offspring list, but we didn't find ourselves.")
+// 	}
+// 	ret = this.node_store(toremove.Get_parent(), mother)
+// 	if ret != nil {
+// 		return ret
+// 	}
+// 	return nil
+// }
+
+// func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_resp_from */, uint32 /* moved_resp_to*/, uint32) {
+// 	/* 11/9/2020 Okay, now that we've separated it into two parts, it's not that bad.
+// 	 * the first part figures out what to delete and updates the list if things got moved,
+// 	 * and here, we just delete one. deleting the mother node is same as always, we have to update
+// 	 * any parents and children that pointed to the thing that moved into our (the deleted node's) place.
+// 	 * almost forgot, if we're the mother node, we also have to update all of our offspring to say we (pos)
+// 	 * is the new location of mover's parent.
+// 	 * deleting an offspring node involves just updating the mother that points to us.
+// 	 * The other important change is that we have to return the two value of from and to positions
+// 	 * that were moved, so caller can update the list of things to delete appropriately if things
+// 	 * in the list to delete get moved while in here. */
+
+// 	/* When deleting a mother node we know we're going to delete all the offspring and the mother node
+// 	 * so we don't have to update anything, as all members of this node, mother and offspring will be
+// 	 * overwritten soon enough.
+// 	 * But in the case where we are shrinking a node because we are updating an existing node
+// 	 * with less data that needs fewer offspring, we will be deleting offspring and NOT
+// 	 * deleting the mother node, so we do in fact have to update the mother node if things got
+// 	 * moved.  wait maybe not. no, I'm being dumb, remember, when we delete something it goes away
+// 	 * we only update things related to the mover node, not the node being deleted.
+// 	 * in the case of shrinking a node, we are simply deleting offspring nodes
+// 	 * that nobody will ever refer to again, the zeroing out of the parent happens in the
+// 	 * update/shrinking function and here we deal with moving important nodes into its place
+// 	 * and all the correct updates are performed. all is well.
+// 	 * that's funny, in update/shrink I said I zeroed out the mother node offspring entries here, and here
+// 	 * I say that I did it there. doing it there makes more sense. don't need to do it on every delete
+// 	 * just offspring deletes where we don't delete the parent which only happens in update/shrink. */
+
+// 	/* 12/23/2020 I think I figured out the bad root node bug. when we move mother nodes around we shuffle
+// 	 * all of the parents and children and stuff, but if the mother node being moved is the root node
+// 	 * we have to update the logically deleted root node header, and I think we missed doing that. */
+
+// 	if pos == 0 {
+// 		return tools.Error(this.log, "sanity failure, tree is corrupt, physically delete one asked to delete node zero."), 0, 0
+// 	}
+
+// 	var moved_resp_from uint32
+// 	var moved_resp_to uint32
+
+// 	this.log.Debug("physically delete one at position: ", pos)
+// 	var iresp uint32
+// 	var ret tools.Ret
+// 	ret, iresp = this.Get_free_position()
+// 	if ret != nil {
+// 		return ret, 0, 0
+// 	}
+// 	var free_position uint32 = iresp
+// 	if (pos == 1) && (free_position == 2) { // deleted the root node
+// 		// removing the last remaining node, nothing to do
+// 		moved_resp_from = pos // nothing is being moved, but we have to return something
+// 		moved_resp_to = pos
+
+// 		/* 11/20/2020 when you physically delete something, if it was a mother, no big deal, it has already
+// 		 * been logically deleted  but if you're deleting an offspring, you still have to find your mother
+// 		 * and tell her you're gone otherwise when the mother goes to move or get deleted, it is pointing
+// 		 * to a node that is gone or at least isn't hers. This was a quick out for the simple delete case,
+// 		 * but there are no simple delete cases. */
+// 		/* okay I meant this for below, in this case, it actually is simple, if you're deleting the root node
+// 		 * then it must be a mother, just deallocate it. logically delete would have already set the root
+// 		 * node to 0 by the time we get here. */
+// 		return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
+// 	}
+// 	if free_position == 2 {
+// 		return tools.Error(this.log,
+// 			"tree is corrupt, free position is 2, but delete request is not to delete position 1, but position: ",
+// 			pos), 0, 0 // something wrong here.
+// 	}
+
+// 	/* Special case, if we're removing the last item, do nothing but lower
+// 	 * the free position, the array item has already been orphaned and
+// 	 * nothing is pointing to it. For recovery's sake it might be worth zeroing out the newly deleted element
+// 	 * because if we search for the end manually we might pick up a deleted node and then we're screwed forever.
+// 	 * 11/9/2020 we're not going to do recovery that way, we're going to do it with a transaction log, so don't worry
+// 	 * about zeroing out deleted nodes. */
+// 	/* this is true for orphans too, I think, it depends on the order in which we delete a node with offspring.
+// 	   regardless of order all the nodes mother and offspring will go away, so once the node is logically
+// 	   deleted we really just need to remove the nodes and we don't have to update the mother because it will
+// 	   be going away too. so when we physically delete a node we just have to worry about the one we're moving into
+// 	   its place. the node being deleted and its mother don't matter at all. */
+
+// 	// so that last bit is not entirely true...
+
+// 	/* but wait! we can't overwrite pos yet, because pos might be an offspring and if we're overwriting it
+// 	 * we have to update it's mother to remove the offspring from the mother's list.
+// 	 * I don't think anybody else takes care of that, logically delete doesn't, it only works on mother
+// 	 * node links. So I believe we have to do that here. */
+// 	/* There are two callers of this, shrink and delete. Shrink does take care of cleaning out the mother's offspring list
+// 	 * but I don't think delete does, which is how we found this problem in the first place, when the simple remove
+// 	 * the offspring off the end case didn't clean itself up in the mother. So same thing, delete doesn't do it
+// 	 * for the complex case either, which means we have to remove the cleaning from shrink since it's done here
+// 	 * because it will fail if we clean it and shrink tries to because shrink won't find it. Actually
+// 	 * shrink knew what it was doing and just blindly cleared out the offspring list, but since we're
+// 	 * taking care of it here, I removed it from shrink. save us a read. */
+
+// 	/* HERE is where we can't simply deallocate, we have to update the mother if we're an offspring. */
+// 	// first see if it's an offspring or not, this will cause a double load, but that's what caches are for.
+// 	/* So it turns out we need to do this in all cases, whether the node being removed is at the end or
+// 	 * not so just do it up front here. Go find the about-to-be-deleted-node's mother and update it. */
+
+// 	var resp *stree_v_node.Stree_node
+// 	ret, resp = this.Node_load(pos)
+// 	if ret != nil {
+// 		return ret, 0, 0
+// 	}
+// 	var toremove stree_v_node.Stree_node = *resp
+// 	if toremove.Is_offspring() {
+// 		/* we haven't overwritten anything yet so we can still load and find its mother.
+// 		 * surprisingly, as similar as all these fixups are, none are identical, sharing
+// 		 * code is risky because it's confusing enough to follow what's going on as it is,
+// 		 * without introducing a bunch of "if this mode, do it slightly differently" so
+// 		 * for now, we handle this case right here. well, since this isn't rust we can
+// 		 * do it in a function. */
+// 		var ret = this.clean_deleted_offspring_from_mother(pos)
+// 		if ret != nil {
+// 			return ret, 0, 0
+// 		}
+// 	}
+
+// 	if pos == free_position-1 {
+// 		this.log.Debug("deleted item is in last position, just deallocating.")
+// 		moved_resp_from = pos // nothing is being moved, but we have to return something
+// 		moved_resp_to = pos
+// 		return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
+// 	}
+
+// 	// nothing in mover has to change, just the people pointing to mover have to change
+// 	var mover_pos uint32 = free_position - 1
+
+// 	// now we know what we're moving where, make sure we return it to caller.
+// 	moved_resp_from = mover_pos
+// 	moved_resp_to = pos
+
+// 	if this.debugprint {
+// 		this.diag_dump_one(mover_pos)
+// 	}
+
+// 	ret, resp = this.Node_load(mover_pos)
+// 	if ret != nil {
+// 		return ret, 0, 0
+// 	}
+// 	var mover *stree_v_node.Stree_node = resp
+
+// 	/* for both mother and offspring, copy the data into the correct array location.
+// 	 * actually, that worked fine when the node was simpler but now I think it just
+// 	 * makes more sense to read the mover node and write it into the movee's location (pos),
+// 	 * that way we don't have to worry about missing anything regardless of type (mother or offspring) */
+
+// 	/* this is the first important bit, we write m's data over the old n's location (pos) */
+// 	/* okay now 11/16/2020 we're doing this at the end because the act of writing mother over it's new
+// 	 * location can possibly overwrite the offspring it's deleting which makes updating
+// 	 * the mother's offspring's parents difficult, so since we have to update the mother's
+// 	 * offspring list (setting the offspring to zero if its in there) we will save writing
+// 	 * for last. */
+
+// 	/* another explanation of the sinister problem.
+// 	 * If we just copied the mother node over one of the mother's offspring
+// 	 * that we are deleting, the attempt to update the offspring's parent will corrupt the
+// 	 * tree because the mother will think it's updating an offspring node, when in fact
+// 	 * it will be updating itself. */
+
+// 	// now update all the people pointing to mover to point to pos instead.
+// 	/* This is where mother/offspring type matters */
+
+// 	if mover.Is_offspring() {
+// 		/* mover node is offspring, go get our parent, find mover in the offspring
+// 		 * list and change it to pos */
+
+// 		/* since we had to move the actual mover node store/write to the end of if-mother, we have to remember to do it
+// 		 * for if-offspring nodes too, it doesn't affect anything about the mover node, since it's an offspring
+// 		 * only things pointing to it matter, so just write it out now. */
+
+// 		var ret = this.node_store(pos, mover)
+// 		if ret != nil {
+// 			return ret, 0, 0
+// 		}
+
+// 		ret, resp = this.Node_load(mover.Get_parent())
+// 		if ret != nil {
+// 			return ret, 0, 0
+// 		}
+// 		var mother *stree_v_node.Stree_node = resp
+// 		if mother.Is_offspring() != false {
+// 			return tools.Error(this.log, "sanity failure, deleting offspring node who's parent is not a mother node."), 0, 0
+// 		}
+
+// 		var found bool = false
+// 		var rp uint32
+// 		for rp = 0; rp < this.m_offspring_per_node; rp++ {
+
+// 			var ret, offspring_resp = mother.Get_offspring_pos(rp)
+// 			if ret != nil {
+// 				return ret, 0, 0
+// 			}
+
+// 			var offspring_peek uint32 = *offspring_resp
+// 			if offspring_peek == 0 { // end of list
+// 				break
+// 			}
+// 			if offspring_peek == mover_pos {
+// 				found = true
+// 				mother.Set_offspring_pos(rp, pos)
+// 				break // there can (better) be only one
+// 			}
+// 		}
+// 		if found == false {
+// 			return tools.Error(this.log,
+// 				"sanity failure, tree is corrupt, while physically deleting ", pos, " we tried to move ",
+// 				mover_pos, " to it, mover ", mover_pos, " was an offspring node, but its parent ",
+// 				mover.Get_parent(), " does not point to mover"), 0, 0
+// 		}
+
+// 		ret = this.node_store(mover.Get_parent(), mother)
+// 		if ret != nil {
+// 			return ret, 0, 0
+// 		}
+// 	} else { // mover node is a mother node, update all the tree pointers to point from mover to pos */
+
+// 		// first update mover's parent, either root or parent's children should point to pos
+// 		/* 11/20/2020 will problems never wane...
+// 		 * so in this case:
+// 		 * -- (wx) bb (ZYXW) 10 (stuv)
+// 		 *      bb
+// 		 *     /
+// 		 *    10
+// 		 * if we're deleting 10, first we logically delete it, then we, here, physically
+// 		 * delete node 1 (10's offspring) and we do that by moving 10 (node 3) to node 1.
+// 		 * then because 10 is a mother node, we try and update its parent's children pointers
+// 		 * and its children's parent pointers.
+// 		 * But if we were just bb's left child which we were, remember we first logically
+// 		 * deleted it to remove it from the tree
+// 		 * so we are no longer bb's child and that's okay. but our parent still says bb.
+// 		 * we can't trigger an error here if we can't
+// 		 * find ourselves as one of our parent's kids, because of this case.
+// 		 * basically if we are an orphaned mother node, it is okay to not update any pointers
+// 		 * we logically do not exist, do not have childen or a parent, nothing to update. */
+// 		var parent uint32 = mover.Get_parent()
+// 		if parent == math.MaxUint32 {
+// 			// if parent is max_value then this mover was just deleted as part of the logical delete for which we are the physical delete.
+// 			this.log.Debug("mother node being moved because of physical delete was logically deleted and is an orphan")
+// 		} else {
+// 			// check for pos being the root node
+// 			if mover.Get_parent() == 0 {
+// 				/* this is our 12/23/2020 bug. We can't rely on the mother node's parent being zero to tell
+// 				 * us if it is the root node. It may be the one being deleted, and therefore is already
+// 				 * logically deleted, so we should not update the root node in that case. We took care of
+// 				 * that problem for all other mother's being moved by setting the sentinal value so we
+// 				 * know not to update pointers of logically deleted nodes. But we missed this one case, where
+// 				 * the one being deleted is also the root node. */
+
+// 				var ret, rootnoderesp = this.m_storage.Get_root_node()
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 				/* so if mover thinks it is the root node, AND the root node thinks mover is the
+// 				 * root node, only then do we update it. If this mother node which WAS the root node
+// 				 * got logically deleted and is now being physically deleted, we don't update the root node. */
+// 				var root_node_pos uint32 = rootnoderesp
+// 				if root_node_pos == mover_pos {
+// 					ret = this.m_storage.Set_root_node(pos)
+// 					if ret != nil {
+// 						return ret, 0, 0
+// 					}
+// 				}
+// 			} else {
+// 				ret, resp = this.Node_load(mover.Get_parent())
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 				var p *stree_v_node.Stree_node = resp
+// 				if p.Get_left_child() == mover_pos {
+// 					p.Set_left_child(pos)
+// 				} else {
+// 					if p.Get_right_child() == mover_pos {
+// 						p.Set_right_child(pos)
+// 					} else {
+// 						if this.debugprint {
+// 							this.diag_dump_one(mover.Get_parent())
+// 						}
+// 						return tools.Error(this.log,
+// 							"sanity failure, tree is corrupt, moving mother node ", mover_pos,
+// 							" but neither of mother's parent's ", mover.Get_parent(), " children ",
+// 							p.Get_left_child(), " and ", p.Get_right_child(), " point to mover ", mover_pos), 0, 0
+// 					}
+// 				}
+// 				var ret = this.node_store(mover.Get_parent(), p)
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 			}
+// 		} // if moving mother node is live in the tree and should have its pointers updated.
+
+// 		// second update mover's children, if any, set their parent to pos
+// 		/* 11/20/2020 this has the same problem as above if the node that's being moved is the mother
+// 		 * node that is being deleted as part of this physically moving delete of an offspring
+// 		 * we can't try and set our children's mother because our children are not our children anymore.
+// 		 * so I think when we logically delete a mother node, we should set its parent and children
+// 		 * to sentinal values so that when we get here, in case of move, we don't try and update them.
+// 		 * this way we can still do validity checks on the ones that should be moving that aren't deleted. */
+// 		var left_child uint32 = mover.Get_left_child()
+// 		if left_child == math.MaxUint32 { // if left_child is max_value then this mover was just deleted as part of the logical delete for which we are the physical delete.
+// 			this.log.Debug("mother node being moved because of physical delete was logically deleted and is an orphan") // we will see this message 3 times.
+// 		} else {
+// 			if left_child != 0 {
+// 				ret, resp = this.Node_load(mover.Get_left_child())
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 				var lc *stree_v_node.Stree_node = resp
+// 				lc.Set_parent(pos)
+// 				var ret = this.node_store(mover.Get_left_child(), lc)
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 			}
+// 		}
+// 		var right_child uint32 = mover.Get_right_child()
+// 		if right_child == math.MaxUint32 { // if right_child is max_value then this mover was just deleted as part of the logical delete for which we are the physical delete.
+// 			this.log.Debug("mother node being moved because of physical delete was logically deleted and is an orphan") // we will see this message 3 times.
+// 		} else {
+// 			if mover.Get_right_child() != 0 {
+// 				var ret, resp = this.Node_load(mover.Get_right_child())
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 				var rc *stree_v_node.Stree_node = resp
+// 				rc.Set_parent(pos)
+// 				ret = this.node_store(mover.Get_right_child(), rc)
+// 				if ret != nil {
+// 					return ret, 0, 0
+// 				}
+// 			}
+// 		}
+// 		/* lastly, now we have to go to all of our offspring and tell them their parent is now pos */
+// 		/* 11/20/2020 in the case of the orphaned mother node, this is still true, we are only logically
+// 		 * orphaned from the tree, our offspring are still our problem and must be kept up to date until
+// 		 * they are deleted. Remember in this case, we are a logically orphaned mother node that got moved BECAUSE
+// 		 * our offspring got physically deleted. */
+// 		var rp uint32
+// 		for rp = 0; rp < this.m_offspring_per_node; rp++ {
+
+// 			var offspring_resp *uint32
+// 			ret, offspring_resp = mover.Get_offspring_pos(rp)
+// 			if ret != nil {
+// 				return ret, 0, 0
+// 			}
+// 			var offspring_node uint32 = *offspring_resp
+// 			if offspring_node == 0 { // end of list
+// 				break
+// 			}
+// 			/* if we happen come across the offspring being deleted, zero it out
+// 			 * and especially do not try and update its parent. This is that sinister
+// 			 * problem I was talking about where a mother is moving over its own offspring
+// 			 * that's being deleted. */
+// 			if offspring_node == pos {
+// 				mover.Set_offspring_pos(rp, 0)
+// 				continue
+// 			}
+
+// 			var ret, resp = this.Node_load(offspring_node)
+// 			if ret != nil {
+// 				return ret, 0, 0
+// 			}
+// 			var o *stree_v_node.Stree_node = resp
+// 			o.Set_parent(pos)
+// 			ret = this.node_store(offspring_node, o)
+// 			if ret != nil {
+// 				return ret, 0, 0
+// 			}
+// 		} // for
+
+// 		/* so now that we've updating all the mother's offspring and set the offspring array if we are overwriting
+// 		 * one of our own offspring, we can finally rewrite the mother node to disk in it's correct final place. */
+// 		var ret = this.node_store(pos, mover)
+// 		if ret != nil {
+// 			return ret, 0, 0
+// 		}
+
+// 	} // if mover is a mother node
+
+// 	// remove old mover position from the allocated array list.
+// 	return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
+// }
+
+// slookup has no concept of delete, there is nothing to delete, there is trim/discard
+// but no actual delete.
+
+// func (this *Slookup_i) Delete(key string, not_found_is_error bool) tools.Ret {
+// 	// if you want to print the pre-delete tree.
+// 	//        ArrayList<Integer> iresp = new ArrayList<Integer>();
+// 	//        String Ret = this.storage.get_root_node(iresp);
+// 	//          if ret != nil {
+// 	//          return Ret;
+// 	//        int root_node = iresp.get(0);
+// 	//        treeprinter_iii.printNode(this, root_node);
+
 // 	this.interface_lock.Lock()
 // 	defer this.interface_lock.Unlock()
 
-// 	var r, iresp = this.m_storage.Get_root_node()
-// 	if r != nil {
-// 		return r, false, nil
+// 	var ret, respfound, _, respnodepos = this.search(key, false)
+// 	if ret != nil {
+// 		return ret
 // 	}
 
-// 	// if root node is zero, then tree is empty, therefore no data.
-// 	var i uint32 = iresp
-// 	if i == 0 {
-// 		return nil, false, nil
+// 	var found bool = respfound
+// 	var pos uint32 = respnodepos
+// 	if found == false {
+// 		if not_found_is_error {
+// 			return tools.Error(this.log, syscall.ENOENT, "no node found to delete for key: ", key) // can't delete what we can't find.
+// 		}
+// 		// this.log.Debug("no node found to delete for key: ", key) // this is rather noisy for discard
+// 		return nil
+// 	}
+// 	/* two steps, first we have to logically delete the node, then
+// 	 * we have to physically move something into its place in storage. */
+// 	/* regardless of what happens during logical delete, it's only pointers
+// 	 * that move around, when it comes to step 2 to physically delete,
+// 	 * we're always going to be deleting the pos array entry, even
+// 	 * if it's the root node and it's the only one left. */
+// 	ret = this.logically_delete(pos)
+// 	if ret != nil {
+// 		return ret
+// 	}
+// 	ret = this.physically_delete(pos)
+// 	if ret != nil {
+// 		return ret
 // 	}
 
-// 	/* the free position is one greater than the last physical block. We know there is data
-// 	 * because the root node is not zero, so we can safely subtract one to get the last
-// 	 * physical node. */
-// 	r, iresp = this.Get_free_position()
-// 	if r != nil {
-// 		return r, false, nil
-// 	}
-// 	var last_node uint32 = iresp - 1
-
-// 	/* load in the last_node, then call common fetcher to return it.
-// 	 * this doesn't do a double read, it mostly does nothing but this way
-// 	 * all fetches return data the same way. */
-
-// 	r, nresp := this.Node_load(last_node)
-// 	if r != nil {
-// 		return r, false, nil
-// 	}
-// 	var last_Stree_node stree_v_node.Stree_node = *nresp
-
-// 	r, resp := this.fetch_stree_data(last_Stree_node)
-// 	if r == nil {
-// 		return r, false, nil
-// 	}
-// 	return nil, true, &resp
+// 	// if you want to print the post-delete tree.
+// 	//        Ret = this.storage.get_root_node(iresp);
+// 	//          if ret != nil {
+// 	//          return Ret;
+// 	//        root_node = iresp.get(0);
+// 	//        treeprinter_iii.printNode(this, root_node);
+// 	return nil
 // }
 
-func (this *Slookup_i) physically_delete(pos uint32) tools.Ret {
-	/* step 2, is just physically copy the data from the last node to the hole,
-	 * then find the parent of the moved node and repoint it to the newly filled hole,
-	 * then the children's parents must also be set to its new location, the newly
-	 * filled hole. */
-
-	/* 11/6/2020 so physically deleting a node is a bit more interesting with offspring.
-	 * if the node is a mother node, we have to delete all the offspring, and the mother node.
-	 * makes sense to do it in reverse in case they're all at the end, deleting is easier.
-	 * if deleting an offspring node, we would have to update the parent, but we know it's going away
-	 * so we don't have to do that, all we do have to do is if we're MOVING an offspring node, update
-	 * the parent's offspring array to point to the new location.
-	 * It sounds a bit risky that we are going to recurse a bit when we delete a mother node because
-	 * we have to physically delete all the offspring nodes, but if the tree isn't corrupt, it should
-	 * work out fine. Famous last words. */
-
-	/* so here is where we care if it's a mother node or offspring being deleted we can take care of two things.
-	 * if it's a mother node the rewrite of the ones that point to it are the same as stree_iii
-	 * with the added caveat that we have to go through the effort of deleting the offspring as well.
-	 * and if it's an offspring node being moved, rewriting the parent is a little different.
-	 * actually we have to think about this a little more.
-	 * deleting a mother node just means we have to delete the offspring
-	 * but keep in mind that deleting offspring might cause the mother node to move.
-	 * so we can't just delete this position we got because it might be different after we do the offspring
-	 * so maybe order is important.
-	 * I keep missing that there's an important distinction between the nodes that are moving and the one(s)
-	 * being deleted. it was a lot simpler when there was only one thing being deleted.
-	 * so let's go through all the combinations.
-	 *
-	 * by the time physically delete is called, the mother node is not in the binary search tree anymore
-	 * it is just taking up space on disk. The offspring of that mother node were never in the tree and as
-	 * soon as the mother node is gone there's no more reference to the offspring nodes.
-	 * physically deleting nodes however can cause anything to move, so we have to be careful
-	 * if we make a list of what to delete because items in that list can get stale after one of them
-	 * is deleted. so I think what has to happen is that we DO have to update the mother node as offspring
-	 * are deleted so that we can always ask the mother node for currently correct things to delete.
-	 * that means
-	 * a) we have to physically delete offspring first
-	 * b) we have to phyiscally delete offspring from back to front (well we don't HAVE to but it keeps the list
-	 * consistent and we have to blank out the offspring list nodes as we delete them
-	 * c) we have to keep an eye on the mother node location because it is possible that it can move as a
-	 * result of deleting one of its offspring.
-	 * I don't think there's a way around c.
-	 * if we delete the mother first then we have no way of keeping track of if the other offspring moved as
-	 * a result of other offsprings nodes physically deleted earlier.
-	 * the only thing we can rely on is the mother node, and I guess the only way to be sure is
-	 * to make sure we keep track if the mother node moved as a result of deleting an offspring node.
-	 * one way to cheap out would be to say if the mother node is the last thing in the list
-	 * then move it manually (swap with the one before it) so that it will not get moved out from under us
-	 * unexpectedly, but I'm not sure that's any easier than just keeping track of if it moves because of an
-	 * offspring node delete.
-	 * then there's the problem of if the mother node is the last one but I guess it can't be since it gets
-	 * deleted only after its offspring is deleted.
-	 * so in summary, I think we just check if we're deleting a mother node, delete the offspring first
-	 * have that update the mother node as it happens, and somehow report if the mother node got moved
-	 * as a result. deleting is hard. testing will be hard too. */
-
-	/* 11/9/2020 okay so I drew it out and worked it all out, and it's not that bad.
-	   * The short of it is we need the parent function that handles physical deletes of
-	   * mother nodes, to generate calls to a function that physically deletes one like we used to.
-	   * the trick is to keep track of what got moved where so that if the original list contains
-	   * the item moved, its number gets updated so the newly moved position gets deleted.
-	                   deleteing m1 and offspring o2 o3 o4...
-	                    1  2  3  4  5  6  7        delete list
-	                A   m o2 o3 o4 m1 m5 o6          4 3 2 5
-	                B   m o2 o3 o6 m1 m5      7->4   x 3 2 5
-	                C   m o2 m5 o6 m1         6->3   x x 2 5
-	                D   m m1 m5 o6            5->2   x x x 2  (because 5 moved to 2 so we change 5 to 2)
-	                E   m o6 m5               4->2   x x x x
-
-	     another example
-
-	                   deleteing m1 and offspring o1 o2 o3...
-	                    1  2  3  4  5              delete list
-	                A   m o1 o2 o3 m1                4 3 2 5
-	                B   m o1 o2 m1            5->4   x 3 2 4  (because 5 moved to 4 so we change 5 to 4)
-	                C   m o1 m1               4->3   x x 2 3  (because 4 moved to 3 so we change 4 to 3)
-	                D   m m1                  3->2   x x x 2  (because 3 moved to 2 so we change 3 to 2)
-	                E   m                     2->2   x x x x
-	*/
-	/* caller already loaded the node from which we can get the list of offspring to delete */
-	/* 11/20/2020 so I dunno WHY the caller loaded the node and passed it to me, but it loaded it
-	 * before it was logically deleted, and therefore is stale, we reload the modified mother node here. */
-
-	var ret, noderesp = this.Node_load(pos)
-	if ret != nil {
-		return ret
-	}
-	var mothertodelete stree_v_node.Stree_node = *noderesp
-
-	if mothertodelete.Is_offspring() {
-		return tools.Error(this.log, "request to delete an offspring node not allowed.")
-	}
-
-	// copy the list of offspring so we have what to delete
-	var delete_list []uint32 = make([]uint32, this.m_offspring_per_node+1) // need to including deleting of mother node
-
-	var delete_list_pos int = 0
-	//        for (int lp = 0; lp < m_offspring_per_node; lp++) // go to end of list, it might not end in zero
-	/* 11/20/2020 this was a problem, we used to delete offspring from left to right, but that doesn't work
-	 * because physically_delete_one stops fixing the offspring list when it gets to a zero from left to
-	 * right, so we must delete in right to left order, just like shrink does so physically delete
-	 * will always have a correct offspring list in mother node to work with.
-	 * okay so that works, if all offspring are full, or rather it did when we went from left to right.
-	 * Now we have to go from right to left, but we have to start either at the end of the offspring list
-	 * or don't use zero as the end of the list because we're not going left to right we're going right to
-	 * left and if not all offspring are used, the last one will be empty/zero and we will bail right away.
-	 * so we romp through the whole offspring list backwards, and only add non-zero things, but don't stop short. */
-	var rp int
-	for rp = int(this.m_offspring_per_node) - 1; rp >= 0; rp-- { // delete them in reverse just like shrink does
-
-		var ret, resp = mothertodelete.Get_offspring_pos(uint32(rp))
-		if ret != nil {
-			return ret
-		}
-		var offspring_value uint32 = *resp
-		if offspring_value == 0 {
-			continue
-		}
-		delete_list[delete_list_pos] = offspring_value
-		delete_list_pos++
-		this.log.Debug("removing node: ", offspring_value)
-	}
-	/* we must delete the mother node last because in deleting the offspring
-	 * nodes it will update the parent with the new offspring list
-	 * with the deleted one zeroed out, so the mother must be around to
-	 * note all of its offspring going away. */
-	delete_list[delete_list_pos] = pos // the mother node to delete
-	delete_list_pos++
-	this.log.Debug("removing mother node: ", pos)
-
-	/* Now go through the delete list individually deleting each item, updating the list if
-	 * something in the list got moved. */
-	this.log.Debug("going to delete ", delete_list_pos, " items.")
-	for rp := 0; rp < delete_list_pos; rp++ {
-		var pos_to_delete uint32 = delete_list[rp]
-
-		var ret, moved_resp_from, moved_resp_to = this.physically_delete_one(pos_to_delete)
-		if ret != nil {
-			return ret
-		}
-		/* now update the remainder of the list if anything in it moved. we can do the whole list,
-		 * it doesn't hurt to update something that was already processed/deleted. */
-		var from uint32 = moved_resp_from
-		var to uint32 = moved_resp_to
-		this.log.Debug("moved mover from ", from, " to ", to)
-
-		for wp := rp + 1; wp < delete_list_pos; wp++ { // as we deleted lp in this round, we don't need to update it.
-
-			if delete_list[wp] == from {
-				delete_list[wp] = to
-				this.log.Debug("mover node ", from, " was in the delete list so we moved it to ", to)
-			}
-		}
-		// only for small trees this.print(); // xxxz
-	}
-	return nil
-}
-
-func (this *Slookup_i) clean_deleted_offspring_from_mother(toremove_pos uint32) tools.Ret {
-	// caller already loaded pos into toremove, this is a double read, but that's what caches are for.
-
-	var ret, resp = this.Node_load(toremove_pos)
-	if ret != nil {
-		return ret
-	}
-	var toremove stree_v_node.Stree_node = *resp
-	if toremove.Is_offspring() == false {
-		return tools.Error(this.log,
-			"sanity failure, offspring was told to clean itself out of mother but it is not an offspring node.")
-	}
-
-	// get our mother.
-	ret, resp = this.Node_load(toremove.Get_parent())
-	if ret != nil {
-		return ret
-	}
-	var mother *stree_v_node.Stree_node = resp
-	if mother.Is_offspring() != false {
-		return tools.Error(this.log, "sanity failure, deleting offspring node who's parent is not a mother node.")
-	}
-	var found bool = false
-	/* go through all the mother's offspring, find ourselves and erase us from the list.
-	 * deletes all work from right to left in the offspring list, so this should leave a correct offspring list */
-	var rp uint32
-	for rp = 0; rp < this.m_offspring_per_node; rp++ {
-
-		var ret, offspring_resp = mother.Get_offspring_pos(rp)
-		if ret != nil {
-			return ret
-		}
-		var offspring_peek uint32 = *offspring_resp
-		if offspring_peek == 0 { // end of list
-			break
-		}
-		if offspring_peek == toremove_pos {
-			found = true
-			mother.Set_offspring_pos(rp, 0) // remove it
-			break                           // there can (better) be only one, and it better be the last one too.
-		}
-	}
-	if found == false {
-		return tools.Error(this.log, "sanity failure, tree is corrupt, while physically deleting ", toremove_pos,
-			" we tried find ourselves in our mother's offspring list, but we didn't find ourselves.")
-	}
-	ret = this.node_store(toremove.Get_parent(), mother)
-	if ret != nil {
-		return ret
-	}
-	return nil
-}
-
-func (this *Slookup_i) physically_delete_one(pos uint32) (tools.Ret /* moved_resp_from */, uint32 /* moved_resp_to*/, uint32) {
-	/* 11/9/2020 Okay, now that we've separated it into two parts, it's not that bad.
-	 * the first part figures out what to delete and updates the list if things got moved,
-	 * and here, we just delete one. deleting the mother node is same as always, we have to update
-	 * any parents and children that pointed to the thing that moved into our (the deleted node's) place.
-	 * almost forgot, if we're the mother node, we also have to update all of our offspring to say we (pos)
-	 * is the new location of mover's parent.
-	 * deleting an offspring node involves just updating the mother that points to us.
-	 * The other important change is that we have to return the two value of from and to positions
-	 * that were moved, so caller can update the list of things to delete appropriately if things
-	 * in the list to delete get moved while in here. */
-
-	/* When deleting a mother node we know we're going to delete all the offspring and the mother node
-	 * so we don't have to update anything, as all members of this node, mother and offspring will be
-	 * overwritten soon enough.
-	 * But in the case where we are shrinking a node because we are updating an existing node
-	 * with less data that needs fewer offspring, we will be deleting offspring and NOT
-	 * deleting the mother node, so we do in fact have to update the mother node if things got
-	 * moved.  wait maybe not. no, I'm being dumb, remember, when we delete something it goes away
-	 * we only update things related to the mover node, not the node being deleted.
-	 * in the case of shrinking a node, we are simply deleting offspring nodes
-	 * that nobody will ever refer to again, the zeroing out of the parent happens in the
-	 * update/shrinking function and here we deal with moving important nodes into its place
-	 * and all the correct updates are performed. all is well.
-	 * that's funny, in update/shrink I said I zeroed out the mother node offspring entries here, and here
-	 * I say that I did it there. doing it there makes more sense. don't need to do it on every delete
-	 * just offspring deletes where we don't delete the parent which only happens in update/shrink. */
-
-	/* 12/23/2020 I think I figured out the bad root node bug. when we move mother nodes around we shuffle
-	 * all of the parents and children and stuff, but if the mother node being moved is the root node
-	 * we have to update the logically deleted root node header, and I think we missed doing that. */
-
-	if pos == 0 {
-		return tools.Error(this.log, "sanity failure, tree is corrupt, physically delete one asked to delete node zero."), 0, 0
-	}
-
-	var moved_resp_from uint32
-	var moved_resp_to uint32
-
-	this.log.Debug("physically delete one at position: ", pos)
-	var iresp uint32
-	var ret tools.Ret
-	ret, iresp = this.Get_free_position()
-	if ret != nil {
-		return ret, 0, 0
-	}
-	var free_position uint32 = iresp
-	if (pos == 1) && (free_position == 2) { // deleted the root node
-		// removing the last remaining node, nothing to do
-		moved_resp_from = pos // nothing is being moved, but we have to return something
-		moved_resp_to = pos
-
-		/* 11/20/2020 when you physically delete something, if it was a mother, no big deal, it has already
-		 * been logically deleted  but if you're deleting an offspring, you still have to find your mother
-		 * and tell her you're gone otherwise when the mother goes to move or get deleted, it is pointing
-		 * to a node that is gone or at least isn't hers. This was a quick out for the simple delete case,
-		 * but there are no simple delete cases. */
-		/* okay I meant this for below, in this case, it actually is simple, if you're deleting the root node
-		 * then it must be a mother, just deallocate it. logically delete would have already set the root
-		 * node to 0 by the time we get here. */
-		return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
-	}
-	if free_position == 2 {
-		return tools.Error(this.log,
-			"tree is corrupt, free position is 2, but delete request is not to delete position 1, but position: ",
-			pos), 0, 0 // something wrong here.
-	}
-
-	/* Special case, if we're removing the last item, do nothing but lower
-	 * the free position, the array item has already been orphaned and
-	 * nothing is pointing to it. For recovery's sake it might be worth zeroing out the newly deleted element
-	 * because if we search for the end manually we might pick up a deleted node and then we're screwed forever.
-	 * 11/9/2020 we're not going to do recovery that way, we're going to do it with a transaction log, so don't worry
-	 * about zeroing out deleted nodes. */
-	/* this is true for orphans too, I think, it depends on the order in which we delete a node with offspring.
-	   regardless of order all the nodes mother and offspring will go away, so once the node is logically
-	   deleted we really just need to remove the nodes and we don't have to update the mother because it will
-	   be going away too. so when we physically delete a node we just have to worry about the one we're moving into
-	   its place. the node being deleted and its mother don't matter at all. */
-
-	// so that last bit is not entirely true...
-
-	/* but wait! we can't overwrite pos yet, because pos might be an offspring and if we're overwriting it
-	 * we have to update it's mother to remove the offspring from the mother's list.
-	 * I don't think anybody else takes care of that, logically delete doesn't, it only works on mother
-	 * node links. So I believe we have to do that here. */
-	/* There are two callers of this, shrink and delete. Shrink does take care of cleaning out the mother's offspring list
-	 * but I don't think delete does, which is how we found this problem in the first place, when the simple remove
-	 * the offspring off the end case didn't clean itself up in the mother. So same thing, delete doesn't do it
-	 * for the complex case either, which means we have to remove the cleaning from shrink since it's done here
-	 * because it will fail if we clean it and shrink tries to because shrink won't find it. Actually
-	 * shrink knew what it was doing and just blindly cleared out the offspring list, but since we're
-	 * taking care of it here, I removed it from shrink. save us a read. */
-
-	/* HERE is where we can't simply deallocate, we have to update the mother if we're an offspring. */
-	// first see if it's an offspring or not, this will cause a double load, but that's what caches are for.
-	/* So it turns out we need to do this in all cases, whether the node being removed is at the end or
-	 * not so just do it up front here. Go find the about-to-be-deleted-node's mother and update it. */
-
-	var resp *stree_v_node.Stree_node
-	ret, resp = this.Node_load(pos)
-	if ret != nil {
-		return ret, 0, 0
-	}
-	var toremove stree_v_node.Stree_node = *resp
-	if toremove.Is_offspring() {
-		/* we haven't overwritten anything yet so we can still load and find its mother.
-		 * surprisingly, as similar as all these fixups are, none are identical, sharing
-		 * code is risky because it's confusing enough to follow what's going on as it is,
-		 * without introducing a bunch of "if this mode, do it slightly differently" so
-		 * for now, we handle this case right here. well, since this isn't rust we can
-		 * do it in a function. */
-		var ret = this.clean_deleted_offspring_from_mother(pos)
-		if ret != nil {
-			return ret, 0, 0
-		}
-	}
-
-	if pos == free_position-1 {
-		this.log.Debug("deleted item is in last position, just deallocating.")
-		moved_resp_from = pos // nothing is being moved, but we have to return something
-		moved_resp_to = pos
-		return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
-	}
-
-	// nothing in mover has to change, just the people pointing to mover have to change
-	var mover_pos uint32 = free_position - 1
-
-	// now we know what we're moving where, make sure we return it to caller.
-	moved_resp_from = mover_pos
-	moved_resp_to = pos
-
-	if this.debugprint {
-		this.diag_dump_one(mover_pos)
-	}
-
-	ret, resp = this.Node_load(mover_pos)
-	if ret != nil {
-		return ret, 0, 0
-	}
-	var mover *stree_v_node.Stree_node = resp
-
-	/* for both mother and offspring, copy the data into the correct array location.
-	 * actually, that worked fine when the node was simpler but now I think it just
-	 * makes more sense to read the mover node and write it into the movee's location (pos),
-	 * that way we don't have to worry about missing anything regardless of type (mother or offspring) */
-
-	/* this is the first important bit, we write m's data over the old n's location (pos) */
-	/* okay now 11/16/2020 we're doing this at the end because the act of writing mother over it's new
-	 * location can possibly overwrite the offspring it's deleting which makes updating
-	 * the mother's offspring's parents difficult, so since we have to update the mother's
-	 * offspring list (setting the offspring to zero if its in there) we will save writing
-	 * for last. */
-
-	/* another explanation of the sinister problem.
-	 * If we just copied the mother node over one of the mother's offspring
-	 * that we are deleting, the attempt to update the offspring's parent will corrupt the
-	 * tree because the mother will think it's updating an offspring node, when in fact
-	 * it will be updating itself. */
-
-	// now update all the people pointing to mover to point to pos instead.
-	/* This is where mother/offspring type matters */
-
-	if mover.Is_offspring() {
-		/* mover node is offspring, go get our parent, find mover in the offspring
-		 * list and change it to pos */
-
-		/* since we had to move the actual mover node store/write to the end of if-mother, we have to remember to do it
-		 * for if-offspring nodes too, it doesn't affect anything about the mover node, since it's an offspring
-		 * only things pointing to it matter, so just write it out now. */
-
-		var ret = this.node_store(pos, mover)
-		if ret != nil {
-			return ret, 0, 0
-		}
-
-		ret, resp = this.Node_load(mover.Get_parent())
-		if ret != nil {
-			return ret, 0, 0
-		}
-		var mother *stree_v_node.Stree_node = resp
-		if mother.Is_offspring() != false {
-			return tools.Error(this.log, "sanity failure, deleting offspring node who's parent is not a mother node."), 0, 0
-		}
-
-		var found bool = false
-		var rp uint32
-		for rp = 0; rp < this.m_offspring_per_node; rp++ {
-
-			var ret, offspring_resp = mother.Get_offspring_pos(rp)
-			if ret != nil {
-				return ret, 0, 0
-			}
-
-			var offspring_peek uint32 = *offspring_resp
-			if offspring_peek == 0 { // end of list
-				break
-			}
-			if offspring_peek == mover_pos {
-				found = true
-				mother.Set_offspring_pos(rp, pos)
-				break // there can (better) be only one
-			}
-		}
-		if found == false {
-			return tools.Error(this.log,
-				"sanity failure, tree is corrupt, while physically deleting ", pos, " we tried to move ",
-				mover_pos, " to it, mover ", mover_pos, " was an offspring node, but its parent ",
-				mover.Get_parent(), " does not point to mover"), 0, 0
-		}
-
-		ret = this.node_store(mover.Get_parent(), mother)
-		if ret != nil {
-			return ret, 0, 0
-		}
-	} else { // mover node is a mother node, update all the tree pointers to point from mover to pos */
-
-		// first update mover's parent, either root or parent's children should point to pos
-		/* 11/20/2020 will problems never wane...
-		 * so in this case:
-		 * -- (wx) bb (ZYXW) 10 (stuv)
-		 *      bb
-		 *     /
-		 *    10
-		 * if we're deleting 10, first we logically delete it, then we, here, physically
-		 * delete node 1 (10's offspring) and we do that by moving 10 (node 3) to node 1.
-		 * then because 10 is a mother node, we try and update its parent's children pointers
-		 * and its children's parent pointers.
-		 * But if we were just bb's left child which we were, remember we first logically
-		 * deleted it to remove it from the tree
-		 * so we are no longer bb's child and that's okay. but our parent still says bb.
-		 * we can't trigger an error here if we can't
-		 * find ourselves as one of our parent's kids, because of this case.
-		 * basically if we are an orphaned mother node, it is okay to not update any pointers
-		 * we logically do not exist, do not have childen or a parent, nothing to update. */
-		var parent uint32 = mover.Get_parent()
-		if parent == math.MaxUint32 {
-			// if parent is max_value then this mover was just deleted as part of the logical delete for which we are the physical delete.
-			this.log.Debug("mother node being moved because of physical delete was logically deleted and is an orphan")
-		} else {
-			// check for pos being the root node
-			if mover.Get_parent() == 0 {
-				/* this is our 12/23/2020 bug. We can't rely on the mother node's parent being zero to tell
-				 * us if it is the root node. It may be the one being deleted, and therefore is already
-				 * logically deleted, so we should not update the root node in that case. We took care of
-				 * that problem for all other mother's being moved by setting the sentinal value so we
-				 * know not to update pointers of logically deleted nodes. But we missed this one case, where
-				 * the one being deleted is also the root node. */
-
-				var ret, rootnoderesp = this.m_storage.Get_root_node()
-				if ret != nil {
-					return ret, 0, 0
-				}
-				/* so if mover thinks it is the root node, AND the root node thinks mover is the
-				 * root node, only then do we update it. If this mother node which WAS the root node
-				 * got logically deleted and is now being physically deleted, we don't update the root node. */
-				var root_node_pos uint32 = rootnoderesp
-				if root_node_pos == mover_pos {
-					ret = this.m_storage.Set_root_node(pos)
-					if ret != nil {
-						return ret, 0, 0
-					}
-				}
-			} else {
-				ret, resp = this.Node_load(mover.Get_parent())
-				if ret != nil {
-					return ret, 0, 0
-				}
-				var p *stree_v_node.Stree_node = resp
-				if p.Get_left_child() == mover_pos {
-					p.Set_left_child(pos)
-				} else {
-					if p.Get_right_child() == mover_pos {
-						p.Set_right_child(pos)
-					} else {
-						if this.debugprint {
-							this.diag_dump_one(mover.Get_parent())
-						}
-						return tools.Error(this.log,
-							"sanity failure, tree is corrupt, moving mother node ", mover_pos,
-							" but neither of mother's parent's ", mover.Get_parent(), " children ",
-							p.Get_left_child(), " and ", p.Get_right_child(), " point to mover ", mover_pos), 0, 0
-					}
-				}
-				var ret = this.node_store(mover.Get_parent(), p)
-				if ret != nil {
-					return ret, 0, 0
-				}
-			}
-		} // if moving mother node is live in the tree and should have its pointers updated.
-
-		// second update mover's children, if any, set their parent to pos
-		/* 11/20/2020 this has the same problem as above if the node that's being moved is the mother
-		 * node that is being deleted as part of this physically moving delete of an offspring
-		 * we can't try and set our children's mother because our children are not our children anymore.
-		 * so I think when we logically delete a mother node, we should set its parent and children
-		 * to sentinal values so that when we get here, in case of move, we don't try and update them.
-		 * this way we can still do validity checks on the ones that should be moving that aren't deleted. */
-		var left_child uint32 = mover.Get_left_child()
-		if left_child == math.MaxUint32 { // if left_child is max_value then this mover was just deleted as part of the logical delete for which we are the physical delete.
-			this.log.Debug("mother node being moved because of physical delete was logically deleted and is an orphan") // we will see this message 3 times.
-		} else {
-			if left_child != 0 {
-				ret, resp = this.Node_load(mover.Get_left_child())
-				if ret != nil {
-					return ret, 0, 0
-				}
-				var lc *stree_v_node.Stree_node = resp
-				lc.Set_parent(pos)
-				var ret = this.node_store(mover.Get_left_child(), lc)
-				if ret != nil {
-					return ret, 0, 0
-				}
-			}
-		}
-		var right_child uint32 = mover.Get_right_child()
-		if right_child == math.MaxUint32 { // if right_child is max_value then this mover was just deleted as part of the logical delete for which we are the physical delete.
-			this.log.Debug("mother node being moved because of physical delete was logically deleted and is an orphan") // we will see this message 3 times.
-		} else {
-			if mover.Get_right_child() != 0 {
-				var ret, resp = this.Node_load(mover.Get_right_child())
-				if ret != nil {
-					return ret, 0, 0
-				}
-				var rc *stree_v_node.Stree_node = resp
-				rc.Set_parent(pos)
-				ret = this.node_store(mover.Get_right_child(), rc)
-				if ret != nil {
-					return ret, 0, 0
-				}
-			}
-		}
-		/* lastly, now we have to go to all of our offspring and tell them their parent is now pos */
-		/* 11/20/2020 in the case of the orphaned mother node, this is still true, we are only logically
-		 * orphaned from the tree, our offspring are still our problem and must be kept up to date until
-		 * they are deleted. Remember in this case, we are a logically orphaned mother node that got moved BECAUSE
-		 * our offspring got physically deleted. */
-		var rp uint32
-		for rp = 0; rp < this.m_offspring_per_node; rp++ {
-
-			var offspring_resp *uint32
-			ret, offspring_resp = mover.Get_offspring_pos(rp)
-			if ret != nil {
-				return ret, 0, 0
-			}
-			var offspring_node uint32 = *offspring_resp
-			if offspring_node == 0 { // end of list
-				break
-			}
-			/* if we happen come across the offspring being deleted, zero it out
-			 * and especially do not try and update its parent. This is that sinister
-			 * problem I was talking about where a mother is moving over its own offspring
-			 * that's being deleted. */
-			if offspring_node == pos {
-				mover.Set_offspring_pos(rp, 0)
-				continue
-			}
-
-			var ret, resp = this.Node_load(offspring_node)
-			if ret != nil {
-				return ret, 0, 0
-			}
-			var o *stree_v_node.Stree_node = resp
-			o.Set_parent(pos)
-			ret = this.node_store(offspring_node, o)
-			if ret != nil {
-				return ret, 0, 0
-			}
-		} // for
-
-		/* so now that we've updating all the mother's offspring and set the offspring array if we are overwriting
-		 * one of our own offspring, we can finally rewrite the mother node to disk in it's correct final place. */
-		var ret = this.node_store(pos, mover)
-		if ret != nil {
-			return ret, 0, 0
-		}
-
-	} // if mover is a mother node
-
-	// remove old mover position from the allocated array list.
-	return this.m_storage.Deallocate(), moved_resp_from, moved_resp_to
-}
-
-func (this *Slookup_i) Delete(key string, not_found_is_error bool) tools.Ret {
-	// if you want to print the pre-delete tree.
-	//        ArrayList<Integer> iresp = new ArrayList<Integer>();
-	//        String Ret = this.storage.get_root_node(iresp);
-	//          if ret != nil {
-	//          return Ret;
-	//        int root_node = iresp.get(0);
-	//        treeprinter_iii.printNode(this, root_node);
-
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
-
-	var ret, respfound, _, respnodepos = this.search(key, false)
-	if ret != nil {
-		return ret
-	}
-
-	var found bool = respfound
-	var pos uint32 = respnodepos
-	if found == false {
-		if not_found_is_error {
-			return tools.Error(this.log, syscall.ENOENT, "no node found to delete for key: ", key) // can't delete what we can't find.
-		}
-		// this.log.Debug("no node found to delete for key: ", key) // this is rather noisy for discard
-		return nil
-	}
-	/* two steps, first we have to logically delete the node, then
-	 * we have to physically move something into its place in storage. */
-	/* regardless of what happens during logical delete, it's only pointers
-	 * that move around, when it comes to step 2 to physically delete,
-	 * we're always going to be deleting the pos array entry, even
-	 * if it's the root node and it's the only one left. */
-	ret = this.logically_delete(pos)
-	if ret != nil {
-		return ret
-	}
-	ret = this.physically_delete(pos)
-	if ret != nil {
-		return ret
-	}
-
-	// if you want to print the post-delete tree.
-	//        Ret = this.storage.get_root_node(iresp);
-	//          if ret != nil {
-	//          return Ret;
-	//        root_node = iresp.get(0);
-	//        treeprinter_iii.printNode(this, root_node);
-	return nil
-}
-
-/* in java there is a package scope, but I don't think go has that, so it's public. */
-func (this *Slookup_i) Get_root_node() uint32 {
-	// only used for treeprinter, package scope
-
-	var ret, iresp = this.m_storage.Get_root_node()
-	if ret != nil {
-		fmt.Println(ret)
-		return 0
-	}
-	return iresp
-}
-
-func (s *Stree_v) Load(pos uint32) *stree_v_node.Stree_node { // only used for testing, package scope
-
-	var ret, resp = s.Node_load(pos)
-	if ret != nil {
-		fmt.Println(ret)
-		return nil
-	}
-	return resp
-}
-
-func Calculate_block_size(log *tools.Nixomosetools_logger, key_type string, value_type []byte,
-	max_key_length uint32, max_value_length uint32, additional_offspring_nodes uint32) (ret tools.Ret, resp uint32) {
-	/* for startup, the caller doesn't know how big we're going to make a block, so it can use this to ask us.
-	 * They don't know what offspring nodes are and how we can store as much data as node_size * offspring_nodes + 1
-	 * so they just pass us the number of nodes total they want to store, and we subtract accordingly.
-	 so for the go version, we're not doing the +1/-1 thing. */
-	var n *stree_v_node.Stree_node = stree_v_node.New_Stree_node(log, key_type, value_type, max_key_length, max_value_length,
-		additional_offspring_nodes)
-	// we pass the max field size because that's what we determine block size with.
-	var serialized_size uint32 = n.Serialized_size(max_key_length, max_value_length)
-
-	return nil, uint32(serialized_size)
-}
+// /* in java there is a package scope, but I don't think go has that, so it's public. */
+// func (this *Slookup_i) Get_root_node() uint32 {
+// 	// only used for treeprinter, package scope
+
+// 	var ret, iresp = this.m_storage.Get_root_node()
+// 	if ret != nil {
+// 		fmt.Println(ret)
+// 		return 0
+// 	}
+// 	return iresp
+// }
+
+// func (s *Stree_v) Load(pos uint32) *stree_v_node.Stree_node { // only used for testing, package scope
+
+// 	var ret, resp = s.Node_load(pos)
+// 	if ret != nil {
+// 		fmt.Println(ret)
+// 		return nil
+// 	}
+// 	return resp
+// }
+
+// this all came from the java generics figure-out-the-type-size stuff which doesn't apply to go
+
+// func Calculate_block_size(log *tools.Nixomosetools_logger, key_type string, value_type []byte,
+// 	max_key_length uint32, max_value_length uint32, additional_offspring_nodes uint32) (ret tools.Ret, resp uint32) {
+// 	/* for startup, the caller doesn't know how big we're going to make a block, so it can use this to ask us.
+// 	 * They don't know what offspring nodes are and how we can store as much data as node_size * offspring_nodes + 1
+// 	 * so they just pass us the number of nodes total they want to store, and we subtract accordingly.
+// 	 so for the go version, we're not doing the +1/-1 thing. */
+// 	var n *stree_v_node.Stree_node = stree_v_node.New_Stree_node(log, key_type, value_type, max_key_length, max_value_length,
+// 		additional_offspring_nodes)
+// 	// we pass the max field size because that's what we determine block size with.
+// 	var serialized_size uint32 = n.Serialized_size(max_key_length, max_value_length)
+
+// 	return nil, uint32(serialized_size)
+// }
 
 func (this *Slookup_i) Get_used_blocks() (tools.Ret, uint32) {
 	this.interface_lock.Lock()
@@ -1905,81 +1869,72 @@ func (this *Slookup_i) Get_total_blocks() uint32 {
 	return this.m_header.M_total_blocks
 }
 
-// func (s *Stree_v) get_max_key_length() uint32 {
-// 	return s.m_max_key_length
+// func (this *Slookup_i) Diag_dump(printtree bool) {
+// 	/* load all active nodes and print out their contents */
+
+// 	var root_node = this.Get_root_node()
+// 	fmt.Println("root node: ", root_node)
+// 	var ret, iresp = this.Get_free_position()
+// 	if ret != nil {
+// 		fmt.Println(ret)
+// 		return
+// 	}
+// 	var free_position uint32 = iresp
+
+// 	var lp uint32
+// 	for lp = 1; lp < free_position; lp++ {
+// 		fmt.Println("---------------------")
+// 		this.diag_dump_one(lp)
+// 	}
+
+// 	if printtree {
+// 		var tp Treeprinter_iii
+// 		tp.PrintNode(this, this.Get_root_node())
+// 	}
+
 // }
 
-// func (s *Stree_v) get_max_value_length() uint32 {
+// func (this *Slookup_i) diag_dump_one(lp uint32) {
 
-// 	return s.m_max_value_length
+// 	var ret, nresp = this.Node_load(lp)
+// 	if ret != nil {
+// 		fmt.Println(ret)
+// 		return
+// 	}
+
+// 	var n stree_v_node.Stree_node = *nresp
+// 	fmt.Println("node pos:       ", lp)
+// 	fmt.Println("parent:         ", n.Get_parent())
+// 	fmt.Println("left child:     ", n.Get_left_child())
+// 	fmt.Println("right child:    ", n.Get_right_child())
+// 	fmt.Println("key:            ", n.Get_key())
+// 	/* print beginning and end of data */
+// 	if len(n.Get_value()) < 8 {
+// 		fmt.Println("value:        ", tools.Dump(n.Get_value()))
+// 	} else {
+// 		var bout []byte // = make([]byte, 1)
+// 		bout = append(bout, n.Get_value()[0:8]...)
+// 		bout = append(bout, n.Get_value()[(len(n.Get_value())-8):]...)
+// 		fmt.Println("value:        ", tools.Dump(bout))
+// 	}
+
+// 	fmt.Print("offspring:      ")
+// 	if n.Is_offspring() {
+// 		fmt.Println("none")
+// 	} else {
+// 		var rp uint32
+// 		for rp = 0; rp < this.m_offspring_per_node; rp++ {
+
+// 			var ret, offspring_resp = n.Get_offspring_pos(rp)
+// 			if ret != nil {
+// 				fmt.Println(ret)
+// 				return
+// 			}
+// 			fmt.Print("", *offspring_resp, " ")
+// 		}
+// 		fmt.Println()
+// 	}
 // }
-
-func (this *Slookup_i) Diag_dump(printtree bool) {
-	/* load all active nodes and print out their contents */
-
-	var root_node = this.Get_root_node()
-	fmt.Println("root node: ", root_node)
-	var ret, iresp = this.Get_free_position()
-	if ret != nil {
-		fmt.Println(ret)
-		return
-	}
-	var free_position uint32 = iresp
-
-	var lp uint32
-	for lp = 1; lp < free_position; lp++ {
-		fmt.Println("---------------------")
-		this.diag_dump_one(lp)
-	}
-
-	if printtree {
-		var tp Treeprinter_iii
-		tp.PrintNode(this, this.Get_root_node())
-	}
-
-}
-
-func (this *Slookup_i) diag_dump_one(lp uint32) {
-
-	var ret, nresp = this.Node_load(lp)
-	if ret != nil {
-		fmt.Println(ret)
-		return
-	}
-
-	var n stree_v_node.Stree_node = *nresp
-	fmt.Println("node pos:       ", lp)
-	fmt.Println("parent:         ", n.Get_parent())
-	fmt.Println("left child:     ", n.Get_left_child())
-	fmt.Println("right child:    ", n.Get_right_child())
-	fmt.Println("key:            ", n.Get_key())
-	/* print beginning and end of data */
-	if len(n.Get_value()) < 8 {
-		fmt.Println("value:        ", tools.Dump(n.Get_value()))
-	} else {
-		var bout []byte // = make([]byte, 1)
-		bout = append(bout, n.Get_value()[0:8]...)
-		bout = append(bout, n.Get_value()[(len(n.Get_value())-8):]...)
-		fmt.Println("value:        ", tools.Dump(bout))
-	}
-
-	fmt.Print("offspring:      ")
-	if n.Is_offspring() {
-		fmt.Println("none")
-	} else {
-		var rp uint32
-		for rp = 0; rp < this.m_offspring_per_node; rp++ {
-
-			var ret, offspring_resp = n.Get_offspring_pos(rp)
-			if ret != nil {
-				fmt.Println(ret)
-				return
-			}
-			fmt.Print("", *offspring_resp, " ")
-		}
-		fmt.Println()
-	}
-}
 
 func (this *Slookup_i) Wipe() tools.Ret {
 	return this.m_storage.Wipe()
