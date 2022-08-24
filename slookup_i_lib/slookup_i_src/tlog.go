@@ -27,6 +27,7 @@ type Tlog struct {
 
 	m_data_block_size_in_bytes uint32
 	m_total_blocks             uint32
+	m_commit                   bool
 }
 
 // verify that tlog implements the interface
@@ -72,6 +73,7 @@ func (this *Tlog) Shutdown() tools.Ret {
 } // should not flush the last transaction if still in flight.
 
 func (this *Tlog) Start_transaction() tools.Ret {
+	this.m_commit = false
 	return tools.Error(this.log, "not implemented yet")
 }
 
@@ -222,6 +224,10 @@ func (this *Tlog) Write_block_list(block_list []uint32, alldata *[]byte) tools.R
 		}
 	}
 	return ret
+}
+
+func (this *Tlog) Set_commit() {
+	this.m_commit = true
 }
 
 func (this *Tlog) End_transaction() tools.Ret {
