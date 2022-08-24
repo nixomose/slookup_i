@@ -673,22 +673,26 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	var ret tools.Ret
 	var alldata *[]byte
 
-	var actual_count = entry.Get_block_group_length() // this is how many are allocated, not/<= block_group_count
-	var block_list []uint32 = make([]uint32, actual_count)
-	var lp uint32
-	for lp = 0; lp < actual_count; lp++ {
-		block_list[lp] = entry.Get_data_block_pos(lp)
-		ret = this.check_data_block_limits(block_list[lp])
-		if ret != nil {
-			return ret, nil
-		}
-	}
-
+	var block_list []uint32 = *entry.Get_block_group_list()
 	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list) // absolute block position
 	if ret != nil {
 		return ret, nil
 	}
 	return nil, alldata
+}
+
+func (this *Slookup_i) Data_block_store(entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
+	/* write the actaul data blocks from the value in this entry, into the blocks in the block_group array */
+	var ret tools.Ret
+	var alldata *[]byte = entry.Get_value()
+
+	// var actual_count = entry.Get_block_group_length() // this is how many are allocated, not/<= block_group_count
+	var block_list []uint32 = *entry.Get_block_group_list()
+	ret = this.m_transaction_log_storage.Write_block_list(block_list, alldata)
+	if ret != nil {
+		return ret
+	}
+	return nil
 }
 
 // not sure if we need this
@@ -984,7 +988,8 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 		it here. so we either fix below to make sure we don't rewrite (future optimization) or
 		we refresh here.
 		take that back again, each code area will make sure the entry is correct on disk.
-		physically delete does that for us, and add data blocks will write entry out itself. */
+		physically delete does that for us, and add data blocks will write entry out itself
+		so we must refresh here so entry is correct after this no matter what. */
 
 		ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
 		if ret != nil {
@@ -995,7 +1000,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 		/* end of handling shrinking. */
 	} else {
-		/* here's the case where we add more nodes if we need them, third option is old and new size (number of offspring)
+		/* here's the case where we add more nodes if we need them, third option is old and new size (number of block_group entries)
 		   are the same, do nothing. */
 		if block_group_count_required > current_block_group_count {
 			// add some empty nodes and fill in the array with their position.
@@ -1024,14 +1029,15 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 			/* and now that we know what entry those new blocks belong to, we have to also update
 			   the reverse lookup entries for those blocks so lets do that here too.
-			   we have to wait until after we do the entry store because it is possible that the reverse lookup
+			   we have to wait until after we do the entry store to disk because it is possible that the reverse lookup
 			   value will need to be stored in the block we're updating. */
 
 			i = 0
-			for rp := current_block_group_count; rp < block_group_count_required; rp++ {
+			for rp := current_block_group_count; rp < block_group_count_required; rp++ { // just for the ones we added/newly allocated
 				var new_data_block_pos uint32 = iresp[i]
 				i++
-				if ret = this.reverse_lookup_entry_set(new_data_block_pos[i], entry.Get_entry_pos()); ret != nil {
+				// set the reverse lookup for the newly allocated data_block entries to point to this entry that they're pointed to in.
+				if ret = this.reverse_lookup_entry_set(new_data_block_pos, entry.Get_entry_pos()); ret != nil {
 					return ret
 				}
 			}
@@ -1075,7 +1081,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	/* double stupid
 	lookup_entry_store does all this for us. in parallel. */
 
-	ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry)
+	ret = this.Data_block_store(entry)
 	if ret != nil {
 		return ret
 	}
