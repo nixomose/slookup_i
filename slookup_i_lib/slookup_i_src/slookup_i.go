@@ -785,7 +785,7 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 	return nil, &nnodes
 }
 
-func (this *Slookup_i) set_reverse_lookup_entry(data_block uint32, block_its_stored_in uint32) tools.Ret {
+func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_stored_in uint32) tools.Ret {
 	/* the idea here is that when we allocate a data block to store data in, we have to update the reverse
 	   lookup table entry for that block so that if somebody needs to delete a block and pull this one, they know
 	   what entry that block is stored in.
@@ -813,6 +813,47 @@ func (this *Slookup_i) set_reverse_lookup_entry(data_block uint32, block_its_sto
 		return ret
 	}
 	return nil
+}
+
+func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Ret, entry *slookup_i_lib_entry.Slookup_i_entry,
+	block_num uint32, block_group_pos uint32) {
+	/* opposite of above, given a data block, go get the entry that holds the reverse lookup information for
+	that block, get the index, get the block num that refers to the entry, search for the block_group array position
+	that has this data block, return the block_num entry, the block_group array index and the value in it.
+	actually don't return that last bit, duh, that's the value they passed us. */
+
+	var reverse_lookup_entry_num uint32 // used as block_num to find the entry
+
+	// we store block_group_count number of reverse lookup array entries in each entry.
+	reverse_lookup_entry_num = data_block / this.Get_block_group_count()
+	// the position in the entry
+	var reverse_lookup_entry_pos uint32 = data_block % this.Get_block_group_count()
+
+	var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
+	if ret, reverse_entry = this.Lookup_entry_load(reverse_lookup_entry_num); ret != nil {
+		return ret, nil, 0, 0
+	}
+	if ret, block_num = entry.Get_reverse_lookup_pos(reverse_lookup_entry_pos); ret != nil {
+		return ret, nil, 0, 0
+	}
+	// now go get the forward entry for block_num
+	if ret, entry = this.Lookup_entry_load(block_num); ret != nil {
+		return ret, nil, 0, 0
+	}
+
+	// now look through it's block_group list looking for data_block
+	var rp uint32
+	for rp = 0; rp < entry.Get_block_group_length(); rp++ {
+		var block_group_pos_value uint32
+		if ret, block_group_pos_value = entry.Get_block_group_pos(rp); ret != nil {
+			return ret, nil, 0, 0
+		}
+		if block_group_pos_value == data_block {
+			return nil, entry, block_num, rp
+		}
+	}
+	return tools.Error(this.log, "data_block: ", data_block, " not found while following reverse lookup entry: ",
+		reverse_entry.Get_entry_pos(), " referring to forward lookup entry ", entry.Get_entry_pos()), nil, 0, 0
 }
 
 func (this *Slookup_i) update(block_num uint32, new_value []byte) tools.Ret {
@@ -990,7 +1031,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			for rp := current_block_group_count; rp < block_group_count_required; rp++ {
 				var new_data_block_pos uint32 = iresp[i]
 				i++
-				if ret = this.set_reverse_lookup_entry(new_data_block_pos[i], entry.Get_entry_pos()); ret != nil {
+				if ret = this.reverse_lookup_entry_set(new_data_block_pos[i], entry.Get_entry_pos()); ret != nil {
 					return ret
 				}
 			}

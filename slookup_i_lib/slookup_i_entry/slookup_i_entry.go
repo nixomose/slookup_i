@@ -223,6 +223,16 @@ func (this *Slookup_i_entry) Set_reverse_lookup_pos(reverse_lookup_pos uint32, e
 	return nil
 }
 
+func (this *Slookup_i_entry) Get_reverse_lookup_pos(reverse_lookup_pos uint32) (tools.Ret, uint32) {
+	/* same as above except instead of setting a reverse_lookup_pos, we're returning the value */
+	if reverse_lookup_pos > this.block_group_count {
+		return tools.Error(this.log, "trying to set reverse_lookup_pos ", reverse_lookup_pos,
+			" which is greater than the block_group_count ", this.block_group_count), 0
+	}
+	// the reverse lookup arrays are always maxed out to block_group_count length so we don't have to check it. */
+	return nil, (*this.data_block_reverse_lookup_list)[reverse_lookup_pos]
+}
+
 func (this *Slookup_i_entry) Serialized_size() uint32 {
 	/* return the size of this node in bytes when it is serialized in the serialize function below
 	* ie, add up all the sizes of the fields we're going to serialize.
