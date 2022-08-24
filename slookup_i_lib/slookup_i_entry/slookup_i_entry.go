@@ -58,7 +58,7 @@ type Slookup_i_entry struct {
 	/* basically, we don't specifically need a field in this struct to hold the length of the data in this entry,
 	we can use the len(value) for that, but we will have to serialize that number to disk and back. */
 
-	value []byte /* the actual value data. is not stored in the lookup entry (seralized/deserialize),
+	value *[]byte /* the actual value data. is not stored in the lookup entry (seralized/deserialize),
 	but we keep it here so we have it all in one place. */
 
 	/* This is only kept around for ease of validation, this value is not serialized to disk.
@@ -143,27 +143,32 @@ func (this *Slookup_i_entry) Dump() string {
 	return str
 }
 
-func (this *Slookup_i_entry) Get_value() []byte {
+func (this *Slookup_i_entry) Get_value() *[]byte {
 	return this.value
 }
 
 func (this *Slookup_i_entry) Init() {
 }
 
-func (this *Slookup_i_entry) Set_value(new_value []byte) tools.Ret {
+func (this *Slookup_i_entry) Set_value(new_value *[]byte) tools.Ret {
 	// make sure the value we're setting doesn't exceed the limits we said we can store
 
-	if uint32(len(new_value)) > this.max_value_length {
-		return tools.Error(this.log, "trying to set value length of ", len(new_value), " but only have space for  ", this.max_value_length)
+	if uint32(len(*new_value)) > this.max_value_length {
+		return tools.Error(this.log, "trying to set value length of ", len(*new_value), " but only have space for  ",
+			this.max_value_length)
 	}
 	this.value = new_value // should we make copy? who owns original memory
 	return nil
 }
 
-func (this *Slookup_i_entry) Get_data_block_pos(block_group_pos uint32) uint32 {
-	/* return the block num this entry refers to where it's data is. */
-	return (*this.block_group_list)[block_group_pos]
+func (this *Slookup_i_entry) Get_block_group_list() *[]uint32 {
+	/* give access to the raw block group list array so it can be used for read_list and write_list.
+	the alternative is to copy all the values out one by one which is great for pretty interfaces but
+	dumb for the purposes of not wasting time for no reason except pretty interfaces */
+	// I guess making this const would be a nice compromise
+	return this.block_group_list
 }
+
 func (this *Slookup_i_entry) Get_block_group_length() uint32 {
 	/* return the size of the block_group array. */
 	return uint32(len(*this.block_group_list))
@@ -171,7 +176,7 @@ func (this *Slookup_i_entry) Get_block_group_length() uint32 {
 
 func (this *Slookup_i_entry) Get_value_length() uint32 {
 	// return the length of the data in this block_group set
-	return uint32(len(this.value))
+	return uint32(len(*this.value))
 }
 
 func (this *Slookup_i_entry) Get_max_value_length() uint32 {
@@ -252,7 +257,7 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 	/* serialize this node into a byte array, which defines the length of a horribly misaligned lookup table entry */
 	/* actually since everything is uint32s now, it's possible to make a block_group_count such that
 	a pile of entries will fit neatly in a block */
-	var bval []byte = this.value
+	var bval *[]byte = this.value
 	var ssize uint32 = this.Serialized_size() // see below, we specifically store the length stored not the padded out length
 	var bb *bytes.Buffer = bytes.NewBuffer(make([]byte, 0, ssize))
 
@@ -262,7 +267,7 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 	* b) this only applies to the last filled in the block group, all others should be full.
 	but the length itself is the full block_group data length, not just the length of the data
 	in the last data_block. */
-	binary.Write(bb, binary.BigEndian, uint32(len(bval))) // if you just pass len(bval) it doesn't write anything
+	binary.Write(bb, binary.BigEndian, uint32(len(*bval))) // if you just pass len(bval) it doesn't write anything
 
 	// offspring can never be null, we always allocate the entire block_group_list array
 
@@ -274,8 +279,9 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 	for rp := 0; rp < int(this.block_group_count); rp++ {
 		binary.Write(bb, binary.BigEndian, uint32((*this.data_block_reverse_lookup_list)[rp]))
 	}
-	if uint32(len(bval)) > this.max_value_length {
-		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_value_length, " it is ", len(bval)), nil
+	if uint32(len(*bval)) > this.max_value_length {
+		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_value_length,
+			" it is ", len(*bval)), nil
 	}
 
 	/* unlike stree, we don't write the actual value here, somebody else is going to have to deal with writing out
@@ -320,13 +326,16 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 	read the value into, just to have somewhere to store the length of the value we may eventually read.
 	we should revisit this someday. we can still store zero length values this way though. */
 
-	this.value = make([]byte, int(data_value_length))
+	var value_storage []byte = make([]byte, int(data_value_length))
+	this.value = &value_storage
+
 	return nil
 }
 
 func (this *Slookup_i_entry) Count_offspring() uint32 {
 
 	var rp int // make this faster xxxz
+	// by using the size of the array, not padding out to block_group_count and filling with zeroes, that's dumb. fix that xxxz
 	for rp = 0; rp < len(*this.block_group_list); rp++ {
 		if (*this.block_group_list)[rp] == 0 {
 			return uint32(rp)
@@ -335,24 +344,25 @@ func (this *Slookup_i_entry) Count_offspring() uint32 {
 	return uint32(len(*this.block_group_list)) // if they're all full, then there are as many as there are array elements
 }
 
-func (this *Slookup_i_entry) Find_data_block_in_data_block_lookup_list(data_block uint32) (tools.Ret, uint32) {
-	/* there's two steps to doing a reverse lookup:
-	1) given the data_block position, divide by block_group_count to get
-	the lookup table entry position, read that lookup table entry, get the data block position mod block_group_count to get
-	the position in the reverse lookup array, then read that value, that's the lookup entry position that should have our
-	data block pos.
-	2) read the lookup table entry for that value, and call this function to get the position of that data block
-	in the block_group list
-	If you're doing everything right, it MUST be there, so it's an error if it's not.
-	all the heavy lifting of #1 will be in slookup_i. we're just the entry class. */
+// this was implemented directly in the slookup_i reverse lookup function
+// func (this *Slookup_i_entry) Find_data_block_in_data_block_lookup_list(data_block uint32) (tools.Ret, uint32) {
+// 	/* there's two steps to doing a reverse lookup:
+// 	1) given the data_block position, divide by block_group_count to get
+// 	the lookup table entry position, read that lookup table entry, get the data block position mod block_group_count to get
+// 	the position in the reverse lookup array, then read that value, that's the lookup entry position that should have our
+// 	data block pos.
+// 	2) read the lookup table entry for that value, and call this function to get the position of that data block
+// 	in the block_group list
+// 	If you're doing everything right, it MUST be there, so it's an error if it's not.
+// 	all the heavy lifting of #1 will be in slookup_i. we're just the entry class. */
 
-	// make this faster too, although this won't actually happen much
-	for pos, n := range *this.block_group_list {
-		if n == data_block {
-			return nil, uint32(pos)
-		}
-	}
-	// we really have to start storing the entry position number in the entry. not on disk, just in the structure.
-	return tools.Error(this.log, "sanity failure: couldn't find data_block: ", data_block, " in block_group_list, for entry: ",
-		this.entry_pos), 0
-}
+// 	// make this faster too, although this won't actually happen much
+// 	for pos, n := range *this.block_group_list {
+// 		if n == data_block {
+// 			return nil, uint32(pos)
+// 		}
+// 	}
+// 	// we really have to start storing the entry position number in the entry. not on disk, just in the structure.
+// 	return tools.Error(this.log, "sanity failure: couldn't find data_block: ", data_block, " in block_group_list, for entry: ",
+// 		this.entry_pos), 0
+// }
