@@ -216,8 +216,9 @@ func (this *Slookup_i) load_and_verify_header() tools.Ret {
 	var data *[]byte
 	var ret tools.Ret
 	// this is about the only thing that goes after the backing store directly and doesn't go through the transaction log
-	if ret, data = this.m_storage.Load_block_data(0); ret != nil {
-		return ret
+	if ret, data = this.m_storage.Load_block_header(); ret != nil {
+		// if ret, data = this.m_storage.Load_block_data(0); ret != nil {
+			return ret
 	}
 
 	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0,
@@ -253,6 +254,25 @@ func (this *Slookup_i) load_and_verify_header() tools.Ret {
 	}
 
 	// we could maybe also verify the positions of the start of lookup table, tlog and data blocks, but those could change and that's valid.
+	return nil
+}
+
+
+func (this *Slookup_i) store_header() tools.Ret {
+	/* write the header to disk */
+
+	var data *[]byte
+	var ret tools.Ret
+	
+	if ret, data = this.m_header.Serialize(this.log, data); ret != nil {
+		return ret
+	}
+
+	// this is about the only thing that goes after the backing store directly and doesn't go through the transaction log
+	if ret, data = this.m_storage.Store_block_header(data); ret != nil {
+		return ret
+	}
+
 	return nil
 }
 
@@ -476,6 +496,15 @@ func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	// I guess the header is the cache.
 	var pos = this.m_header.M_free_position
 	return nil, pos
+}
+
+func (this *Slookup_i) Set_free_position(new_free_position uint32) tools.Ret {
+	var ret tools.Ret
+	if ret = this.check_data_block_limits(new_free_position); ret != nil {
+		return ret
+	}
+	this.m_header.M_free_position = new_free_position
+	return nil
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -1126,8 +1155,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	return nil
 }
 
-func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.Ret,
-	moved_resp_from uint32, moved_resp_to uint32) {
+func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.Ret, moved_from uint32, moved_to uint32) {
 	/* for slookup_i physically deleteing an entry is this:
 			 1) copy the data_block from the old block_num to the new block_num
 			 2) do a reverse lookup on the old block_num
@@ -1143,6 +1171,82 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 					and that's why we validate all the ranges all the time.
 	*/
 
+	// get the mover data block as the last allocted block
+
+	this.log.Debug("physically delete one at position: ", data_block_num)
+	if ret = this.check_data_block_limits(data_block_num); ret != nil {
+		return
+	}
+
+	var free_position uint32
+	ret, free_position = this.Get_free_position()
+	if ret != nil {
+		return
+	}
+	if (free_position - 1) == data_block_num {
+		// removing the last allocated block, nothing to do
+		this.log.Debug("The last allocated block is being deleted, nothing to do but deallocate the last block.")
+		moved_from = data_block_num // nothing is being moved, but we have to return something
+		moved_to = data_block_num
+		ret = this.deallocate()
+		return
+	}
+
+	moved_from = free_position - 1
+	moved_to = data_block_num
+	//	1) copy the data_block from the old block_num to the new block_num
+	if ret = this.copy_data_block(moved_to, moved_from); ret != nil {
+		return
+	}
+
+	// 2) do a reverse lookup on the old block_num
+	var entry *slookup_i_lib_entry.Slookup_i_entry
+	var block_num uint32
+	var block_group_pos uint32
+	if ret, entry, block_num, block_group_pos = this.reverse_lookup_entry_get(data_block_num); ret != nil {
+		return
+	}
+
+	// 	3) update the block_group_pos that pointed to the old block_num to point to the new block_num
+	if ret = entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
+		return
+	}
+
+	// 	4) write out the entry with the updated block_group array pos setting.
+	if ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry); ret != nil {
+		return
+	}
+
+	// 	5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
+	// 		 which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
+	// 	6) write that entry out too.
+	if ret = this.reverse_lookup_entry_set(moved_to, entry.Get_entry_pos()); ret != nil {
+		return
+	}
+
+	// 	 7) deallocate block. this will not overwrite the reverse lookup for that block it will be old stale
+	// 		 data of out the valid range of data_blocks that exist/can be referred to,
+	// 		 so that reverse lookup entry will get written over when that block is allocated again.
+	// 		 we could waste the time and io to zero out that reverse lookup entry, but that's a wasted io
+	// 		 and that's why we validate all the ranges all the time.
+	if ret = this.deallocate(); ret != nil {
+		return
+	}
+
+	return
+}
+
+func (this *Slookup_i) deallocate() tools.Ret {
+	/* slookup_i level deallocate last allocated block.
+	lower the free position by one, write the header to disk
+	call m_storage deallocate. */
+
+	var free_position = this.Get_free_position()
+	free_position = free_position - 1
+	if ret =	this.Set_free_position(free_position) ; ret != nil; {return ret}
+
+	write_headerxxxxxxxxxxxxxz
+	return nil
 }
 
 // this is a main entrypoint for zosbd2_slookup_i backing_store
