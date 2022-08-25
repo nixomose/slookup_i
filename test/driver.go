@@ -109,7 +109,7 @@ func main() {
 
 func get_init_params() (uint32, uint32, uint32, uint32, uint32) {
 
-	var sample_key = Key_from_block_num(0)
+	var sample_key = Generate_key_from_block_num(0)
 	var KEY_LENGTH uint32 = uint32(len(sample_key))
 	var VALUE_LENGTH uint32 = 4096
 	var max_key_len uint32 = KEY_LENGTH
