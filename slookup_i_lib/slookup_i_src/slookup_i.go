@@ -81,10 +81,6 @@ type Slookup_i struct {
 	debugprint bool
 }
 
-// verify that slookup_i implements the interface
-// var _ stree_v_lib.Stree_v_backing_store_interface = &Stree_v{}
-// var _ stree_v_lib.Stree_v_backing_store_interface = (*Stree_v)(nil)
-
 func New_Slookup_i(l *tools.Nixomosetools_logger,
 	b slookup_i_lib_interfaces.Slookup_i_backing_store_interface,
 	t slookup_i_lib_interfaces.Transaction_log_interface, /* entry_size uint32, this gets calculated */
@@ -205,20 +201,22 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		return ret
 	}
 
-	if ret = this.load_and_verify_header(); ret != nil {
+	if ret = this.initial_load_and_verify_header(); ret != nil {
 		return ret
 	}
 	return nil
 }
-func (this *Slookup_i) load_and_verify_header() tools.Ret {
+func (this *Slookup_i) initial_load_and_verify_header() tools.Ret {
 	/* now that we can read from the backing store, get the header and verify that the data_block_size in the header
-	   that defines the backing store layout, matches what the caller sent */
+	   that defines the backing store layout, matches what the caller sent.
+		 this is only ever called once on startup so it reads from the backing
+		 store directly. the header spends its life in memory and is just written
+		 to disk as part of transactions. */
 	var data *[]byte
 	var ret tools.Ret
 	// this is about the only thing that goes after the backing store directly and doesn't go through the transaction log
-	if ret, data = this.m_storage.Load_block_header(); ret != nil {
-		// if ret, data = this.m_storage.Load_block_data(0); ret != nil {
-			return ret
+	if ret, data = this.m_storage.Load_block_data(0); ret != nil {
+		return ret
 	}
 
 	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0,
@@ -257,19 +255,19 @@ func (this *Slookup_i) load_and_verify_header() tools.Ret {
 	return nil
 }
 
-
 func (this *Slookup_i) store_header() tools.Ret {
 	/* write the header to disk */
 
 	var data *[]byte
 	var ret tools.Ret
-	
-	if ret, data = this.m_header.Serialize(this.log, data); ret != nil {
+
+	if ret, data = this.m_header.Serialize(this.log); ret != nil {
 		return ret
 	}
 
-	// this is about the only thing that goes after the backing store directly and doesn't go through the transaction log
-	if ret, data = this.m_storage.Store_block_header(data); ret != nil {
+	/* writes to the header go through the tlog so that header changes can also be
+	part of a transaction. */
+	if ret = this.Write(0, data); ret != nil {
 		return ret
 	}
 
@@ -883,7 +881,7 @@ func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_sto
 }
 
 func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Ret, entry *slookup_i_lib_entry.Slookup_i_entry,
-	block_num uint32, block_group_pos uint32) {
+	block_group_pos uint32) {
 	/* opposite of above, given a data block, go get the entry that holds the reverse lookup information for
 	that block, get the index, get the block num for the entry that refers to the data_block,
 	read the entry in, and search that entry's block_group list for the block_group array position
@@ -900,14 +898,15 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 
 	var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
 	if ret, reverse_entry = this.Lookup_entry_load(reverse_lookup_entry_num); ret != nil {
-		return ret, nil, 0, 0
+		return ret, nil, 0
 	}
+	var block_num uint32
 	if ret, block_num = entry.Get_reverse_lookup_pos(reverse_lookup_entry_pos); ret != nil {
-		return ret, nil, 0, 0
+		return ret, nil, 0
 	}
 	// now go get the forward entry for block_num
 	if ret, entry = this.Lookup_entry_load(block_num); ret != nil {
-		return ret, nil, 0, 0
+		return ret, nil, 0
 	}
 
 	// now look through it's block_group list looking for data_block
@@ -915,14 +914,14 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 	for rp = 0; rp < entry.Get_block_group_length(); rp++ {
 		var block_group_pos_value uint32
 		if ret, block_group_pos_value = entry.Get_block_group_pos(rp); ret != nil {
-			return ret, nil, 0, 0
+			return ret, nil, 0
 		}
 		if block_group_pos_value == data_block {
-			return nil, entry, block_num, rp
+			return nil, entry, rp
 		}
 	}
-	return tools.Error(this.log, "data_block: ", data_block, " not found while following reverse lookup entry: ",
-		reverse_entry.Get_entry_pos(), " referring to forward lookup entry ", entry.Get_entry_pos()), nil, 0, 0
+	return tools.Error(this.log, "sanity failure: data_block: ", data_block, " not found while following reverse lookup entry: ",
+		reverse_entry.Get_entry_pos(), " referring to forward lookup entry ", entry.Get_entry_pos()), nil, 0
 }
 
 // this is probably not used
@@ -1192,8 +1191,10 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		return
 	}
 
+	// return to caller what we did.
 	moved_from = free_position - 1
 	moved_to = data_block_num
+
 	//	1) copy the data_block from the old block_num to the new block_num
 	if ret = this.copy_data_block(moved_to, moved_from); ret != nil {
 		return
@@ -1201,9 +1202,8 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 
 	// 2) do a reverse lookup on the old block_num
 	var entry *slookup_i_lib_entry.Slookup_i_entry
-	var block_num uint32
 	var block_group_pos uint32
-	if ret, entry, block_num, block_group_pos = this.reverse_lookup_entry_get(data_block_num); ret != nil {
+	if ret, entry, block_group_pos = this.reverse_lookup_entry_get(data_block_num); ret != nil {
 		return
 	}
 
@@ -1236,16 +1236,34 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	return
 }
 
+func (this *Slookup_i) copy_data_block(move_to uint32, move_from uint32) tools.Ret {
+	/* read the from block of data, write it to the to block */
+	var ret tools.Ret
+	var data *[]byte
+	if ret, data = this.Read(move_from); ret != nil {
+		return ret
+	}
+	return this.Write(move_to, data)
+}
+
 func (this *Slookup_i) deallocate() tools.Ret {
 	/* slookup_i level deallocate last allocated block.
 	lower the free position by one, write the header to disk
 	call m_storage deallocate. */
 
-	var free_position = this.Get_free_position()
-	free_position = free_position - 1
-	if ret =	this.Set_free_position(free_position) ; ret != nil; {return ret}
+	var ret, free_position = this.Get_free_position()
 
-	write_headerxxxxxxxxxxxxxz
+	if ret != nil {
+		return ret
+	}
+	free_position = free_position - 1
+	if ret = this.Set_free_position(free_position); ret != nil {
+		return ret
+	}
+
+	if ret = this.store_header(); ret != nil {
+		return ret
+	}
 	return nil
 }
 

@@ -40,11 +40,13 @@ type Slookup_i_backing_store_interface interface {
 
 	Shutdown() tools.Ret
 
-	Load_block_header(len uint32) (tools.Ret, *[]byte)
+	// remind me what this does again?
+	// Load_block_header(len uint32) (tools.Ret, *[]byte)
 
 	Load_block_data(block_num uint32) (tools.Ret, *[]byte)
 
-	Store_block_header(n *[]byte) tools.Ret
+	// and this? what's this for?
+	// Store_block_header(n *[]byte) tools.Ret
 
 	Store_block_data(block_num uint32, n *[]byte) tools.Ret
 
