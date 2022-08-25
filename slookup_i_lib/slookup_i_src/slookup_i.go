@@ -1089,16 +1089,28 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	return nil
 }
 
-func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.Ret, moved_resp_from uint32, moved_resp_to uint32) {
+func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.Ret,
+	moved_resp_from uint32, moved_resp_to uint32) {
 	/* for slookup_i physically deleteing an entry is this:
-	      1) set the block_group pos for this data_block_num being deleted
-	   	 xxxz
+			 1) copy the data_block from the old block_num to the new block_num
+			 2) do a reverse lookup on the old block_num
+			 3) update the block_group_pos that pointed to the old block_num to point to the new block_num
+			 4) write out the entry with the updated block_group array pos setting.
+			 5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
+			    which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
+			 6) write that entry out too.
+	 		 7) deallocate block. this will not overwrite the reverse lookup for that block it will be old stale
+					data of out the valid range of data_blocks that exist/can be referred to,
+					so that reverse lookup entry will get written over when that block is allocated again.
+					we could waste the time and io to zero out that reverse lookup entry, but that's a wasted io
+					and that's why we validate all the ranges all the time.
+	*/
 
-	   }
+}
 
-	   // this is a main entrypoint for zosbd2_slookup_i backing_store
-	   func (this *Slookup_i) Write(block_num uint32, new_value *[]byte) tools.Ret {
-	   	/* this function will write a block. */
+// this is a main entrypoint for zosbd2_slookup_i backing_store
+func (this *Slookup_i) Write(block_num uint32, new_value *[]byte) tools.Ret {
+	/* this function will write a block. */
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
