@@ -30,6 +30,7 @@ package slookup_i_src
 import (
 	"fmt"
 	"sync"
+	"syscall"
 
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
@@ -153,7 +154,43 @@ func (this *Slookup_i) Is_initialized() (tools.Ret, bool) {
 func (this *Slookup_i) Init() tools.Ret {
 	/* init the backing store, as in if it's a filestore, write the header info
 	so it becomes initted, if it's a block device, zero out the lookup table. */
-	return this.m_storage.Init()
+	var ret = this.m_storage.Init()
+	if ret != nil {
+		return ret
+	}
+	return this.zero_out_lookup_table()
+}
+
+func (this *Slookup_i) zero_out_lookup_table() tools.Ret {
+	/* unlike stree where we allocate everything as we need it, the slookup on disk format
+	   requires that the lookup table be in a state where we can tell the difference between
+	   blocks already written to and blocks never written to.
+	   filesystems do this by trimming everything when they first write their filesystem metadata
+	   and basically that's what we have to do here too.
+	   the backing store might be able to trim/discard for us, but if not, we're going to have
+	   to write a lot of zeroes.
+	   the assumption is that an entry can deserialize correctly from a pile of zeros.
+	*/
+
+	var ret tools.Ret = this.discard_lookup_table()
+
+	if ret != nil {
+		if ret.Get_errcode() != int(syscall.ENAVAIL) {
+			return ret
+		}
+		// the discard was unavaiable, do it the hard way
+		var start_block = this.Get_first_lookup_table_start_block()
+		var end_block = start_block + this.Get_lookup_table_storage_block_count()
+		if ret = this.m_transaction_log_storage.Write_block_range(start_block, end_block, nil); ret != nil {
+			return ret
+		}
+	}
+	return nil
+}
+
+func (this *Slookup_i) discard_lookup_table() tools.Ret {
+	// not implemented yet
+	return tools.ErrorWithCodeNoLog(this.log, int(syscall.ENAVAIL))
 }
 
 func (this *Slookup_i) Startup(force bool) tools.Ret {
