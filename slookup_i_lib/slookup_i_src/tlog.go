@@ -169,9 +169,13 @@ func (this *Tlog) Write_block(block_num uint32, n *[]byte) tools.Ret {
 
 func (this *Tlog) write_from_buffer(rets chan<- tools.Ret, block_num uint32, destposstart uint32, destposend uint32,
 	alldata_lock *sync.Mutex, alldata *[]byte) {
-	var data []byte = (*alldata)[destposstart:destposend]
-	var ret tools.Ret
-	ret = this.Write_block(block_num, &data)
+	var data []byte
+	if alldata == nil {
+		data = make([]byte, this.m_data_block_size_in_bytes)
+	} else {
+		data = (*alldata)[destposstart:destposend]
+	}
+	var ret = this.Write_block(block_num, &data)
 	alldata_lock.Unlock()
 	rets <- ret
 }
@@ -179,6 +183,7 @@ func (this *Tlog) write_from_buffer(rets chan<- tools.Ret, block_num uint32, des
 func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32, alldata *[]byte) tools.Ret {
 	/* call write single block in parallel getting the data from slices of alldata. */
 	// end_block is not inclusive
+	// if alldata is null, write zeros
 
 	var rets = make(chan tools.Ret)
 	var alldata_lock sync.Mutex
