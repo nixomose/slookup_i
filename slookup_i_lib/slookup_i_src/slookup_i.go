@@ -1905,7 +1905,15 @@ I came across, but other than that it won't help us much. */
 func (this *Slookup_i) Get_used_blocks() (tools.Ret, uint32) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
-	return this.Get_free_position()
+	var free_position uint32
+	var ret tools.Ret
+	if ret, free_position = this.Get_free_position(); ret != nil {
+		return ret, 0
+	}
+
+	var start = this.Get_first_data_block_start_block()
+	var used = free_position - start
+	return nil, used
 }
 
 func (this *Slookup_i) Get_total_blocks() uint32 {
@@ -1916,6 +1924,17 @@ func (this *Slookup_i) Get_total_blocks() uint32 {
 		 we return 500 because there are a total of 500 data blocks of storable space. */
 
 	return this.m_header.M_total_blocks
+}
+
+func (this *Slookup_i) Get_total_data_blocks() uint32 {
+	/* this is the total number of blocks available to store data in the backing store.
+	   if there are 500 blocks in the store, block 0 is the header, 10 is the start of
+		 the lookup table, 80 is the start of the transaction log, 100 is the start
+		 of the data blocks, 500 is the end of the data blocks, then
+		 we return 400 because there are a total of 400 data blocks of storable space for data. */
+
+	var total_data = this.m_header.M_total_blocks - this.Get_first_data_block_start_block()
+	return total_data
 }
 
 // func (this *Slookup_i) Diag_dump(printtree bool) {
