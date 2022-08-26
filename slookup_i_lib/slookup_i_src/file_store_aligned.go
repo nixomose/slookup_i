@@ -32,7 +32,7 @@ which is where the slookup_i header will go. There will be redundant information
 and we're wasting two blocks, but separation of concerns and all that, you can use an slookup_i
 without a backing file store and it won't need this file store header, yada yada. */
 
-const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC_1k uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
+const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
 const CHECK_START_BLANK_BYTES int = 4096
 const STREE_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
@@ -133,15 +133,15 @@ func New_File_store_aligned(l *Nixomosetools_logger, store_filename string, bloc
 	return &f
 }
 
-func (this *File_store_aligned) calc_block_count() uint32 {
-	/* figure out how many blocks can fit in the available storage size taking
-	   the user supplied alignment requirement into account. */
+// func (this *File_store_aligned) calc_block_count() uint32 {
+// 	/* figure out how many blocks can fit in the available storage size taking
+// 	   the user supplied alignment requirement into account. */
 
-	// get the size of an aligned block by asking for the position of block 1
-	var adjusted_block_size = this.calc_offset(1)                                                                // sounds like a tax term
-	var max_count = uint64(this.m_initial_block_size) * uint64(this.m_initial_block_count) / adjusted_block_size // rounded down to fit
-	return uint32(max_count)
-}
+// 	// get the size of an aligned block by asking for the position of block 1
+// 	var adjusted_block_size = this.calc_offset(1)                                                                // sounds like a tax term
+// 	var max_count = uint64(this.m_initial_block_size) * uint64(this.m_initial_block_count) / adjusted_block_size // rounded down to fit
+// 	return uint32(max_count)
+// }
 
 func (this *File_store_aligned) Get_store_information() (Ret, string) {
 	var m map[string]string = make(map[string]string)
@@ -187,55 +187,57 @@ func (this *File_store_aligned) Get_store_information() (Ret, string) {
 	}
 	return nil, string(bytesout)
 }
-/// 
-xxxxxxxxzzzzzz got up to here.
 
 func (this *File_store_aligned) Init() Ret {
+	/* init a new backing store, this writes the FILE header, not the slookup_header, that's
+	   slookup_i's problem. */
 
-	this.log.Info(this.m_store_filename, " will be formatted with an stree header.")
+	this.log.Info(this.m_store_filename, " will be formatted with an slookup_i file header.")
 
-	var ret = this.calculate_usable_storage()
-	if ret != nil {
-		return ret
+	if this.m_initial_block_size == 0 {
+		return Error(this.log, "invalid file store parameters, block size is zero.")
 	}
-
-	if this.m_initial_store_size_in_bytes == 0 {
-		return Error(this.log, "invalid file store parameters, store size is zero.")
+	if this.m_initial_block_count == 0 {
+		return Error(this.log, "invalid file store parameters, block count is zero.")
 	}
 
 	/* Clear out the dataset file and write new blank metadata. */
 	this.log.Debug("initting file backing storage: " + this.m_store_filename)
-	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_slookup_i_MAGIC_5k
-	this.m_header.M_store_size_in_bytes = this.m_initial_store_size_in_bytes
-	this.log.Debug("inital store size in bytes: ", tools.Prettylargenumber_uint64(this.m_initial_store_size_in_bytes))
-
+	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC
 	this.m_header.M_block_size = this.m_initial_block_size
 	this.log.Debug("inital block size in bytes: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)))
-	this.m_header.M_nodes_per_block = this.m_initial_nodes_per_block
-	this.log.Debug("inital nodes per block: ", this.m_initial_nodes_per_block)
-	// this isn't stored for some reason, but we calculate it in  stree.Get_node_size_in_bytes()
-	//	var max_node_size = max_value_length * (this.m_offspring_per_node + 1) // +1 is for mother node
-	var max_node_size = this.m_header.M_block_size * (this.m_header.M_nodes_per_block + 1) // +1 is for mother node
-	this.log.Debug("stree node size in bytes: ", max_node_size)
 
-	this.m_header.M_block_count = this.calc_block_count()
-	this.log.Debug("number of blocks available in backing store: ", tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count)))
-	this.m_header.M_root_node = 0
-	this.m_header.M_free_position = 1
+	this.m_header.M_block_count = this.m_initial_block_count
+	this.log.Debug("inital block count: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_count)))
+
 	this.m_header.M_alignment = this.m_initial_file_store_block_alignment
 	this.m_header.M_dirty = 1
+
+	this.log.Debug("blocks used for header", tools.Prettylargenumber_uint64(1))
+
+	this.log.Debug("total blocks used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count)+1))
+	this.log.Debug("total bytes used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)*
+		(uint64(this.m_header.M_block_count)+1)))
+	// which isn't true because it doesn't take alignment padding into account
+
 	this.log.Debug("physical store block alignment: ", tools.Prettylargenumber_uint64(uint64(this.m_header.M_alignment)))
 	// this is just informational, we don't need to know this, it gets calculated when we read/write offsets
 	this.log.Debug("number of physical bytes used for a block: ", tools.Prettylargenumber_uint64(this.calc_offset(1)))
+
+	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
+	this.log.Debug("total bytes used in backing store with alignment", tools.Prettylargenumber_uint64(uint64(this.calc_offset(1))*
+		(uint64(this.m_header.M_block_count)+1)))
+
 	/* While we're here we can work out how much space is being wasted by alignment. why not. */
 	var waste_per_block = this.calc_offset(1) - uint64(this.m_header.M_block_size)
 	this.log.Debug("wasted bytes per block: ", tools.Prettylargenumber_uint64(waste_per_block))
 	var total_waste = waste_per_block * uint64(this.m_header.M_block_count)
 	this.log.Debug("total bytes wasted due to alignment padding: ", tools.Prettylargenumber_uint64(total_waste))
-	var total_waste_percent = total_waste * 100 / this.m_header.M_store_size_in_bytes
+	var total_waste_percent = total_waste * 100 / (uint64(this.m_header.M_block_size) * uint64(this.m_header.M_block_count))
 	this.log.Debug("total waste percent: ", total_waste_percent)
 
 	var json string
+	var ret tools.Ret
 	ret, json = this.Get_store_information()
 	if ret != nil {
 		return ret
@@ -249,6 +251,7 @@ func (this *File_store_aligned) Init() Ret {
 
 	return this.write_header_to_disk(true)
 }
+xxxxxxxxxxxxxxxz got up to here.
 
 func (this *File_store_aligned) write_header_to_disk(initting bool) Ret {
 	/* everybody goes through here so we can calculate checksum */
@@ -502,19 +505,19 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 	return nil // all is well.
 }
 
-func (this *File_store_aligned) calculate_usable_storage() Ret {
-	var r Ret
-	r, this.m_initial_store_size_in_bytes = this.Get_usable_storage_bytes(this.m_store_filename)
-	if r != nil {
-		return r
-	}
-	// f.log.Debug("usable storage bytes on storage device: ", f.m_store_filename, " = ",
-	// 	tools.Prettylargenumber_uint64(f.m_initial_store_size_in_bytes))
-	if this.m_initial_store_size_in_bytes == 0 {
-		return Error(this.log, "get usable storage bytes returned zero. Can't allocate storage.")
-	}
-	return nil
-}
+// func (this *File_store_aligned) calculate_usable_storage() Ret {
+// 	var r Ret
+// 	r, this.m_initial_store_size_in_bytes = this.Get_usable_storage_bytes(this.m_store_filename)
+// 	if r != nil {
+// 		return r
+// 	}
+// 	// f.log.Debug("usable storage bytes on storage device: ", f.m_store_filename, " = ",
+// 	// 	tools.Prettylargenumber_uint64(f.m_initial_store_size_in_bytes))
+// 	if this.m_initial_store_size_in_bytes == 0 {
+// 		return Error(this.log, "get usable storage bytes returned zero. Can't allocate storage.")
+// 	}
+// 	return nil
+// }
 
 func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 	if this.m_datastore != nil {
