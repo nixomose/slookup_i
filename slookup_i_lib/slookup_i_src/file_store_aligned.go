@@ -16,15 +16,23 @@ import (
 	"syscall"
 
 	. "github.com/nixomose/nixomosegotools/tools"
-	stree_v_lib "github.com/nixomose/stree_v/stree_v_lib/stree_v_interfaces"
+	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 
 	"github.com/nixomose/nixomosegotools/tools"
 
 	"golang.org/x/sys/unix"
 )
 
-const ZENDEMIC_OBJECT_STORE_STREE_V_MAGIC_5k uint64 = 0x5a454e5354354b41 // ZENST5KA  zendemic stree4kaligned
-const USABLE_SPACE_PERCENTAGE = 80
+/* so when I did this for stree, I made one small mistake, the additional nodes thing, though helpful to know
+is not realling the backing store's problem. the backing store knows only blocks of block_size length. */
+
+/* that said, the file/block store has a header too, so the filestore header will be at block 0
+and the filestore will offset everything to start at physical block 1, which will be slookup_i block 0
+which is where the slookup_i header will go. There will be redundant information for sure
+and we're wasting two blocks, but separation of concerns and all that, you can use an slookup_i
+without a backing file store and it won't need this file store header, yada yada. */
+
+const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC_1k uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
 const CHECK_START_BLANK_BYTES int = 4096
 const STREE_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
@@ -36,8 +44,7 @@ type File_store_aligned struct {
 	m_store_filename                     string
 	m_datastore                          *os.File // the file handle to backing file/block device
 	m_initial_block_size                 uint32   // the number of bytes we need to store a block of data passed in from parent storage layer
-	m_initial_store_size_in_bytes        uint64   // the number of bytes in store passed in from parent storage layer
-	m_initial_nodes_per_block            uint32   // the number of additional nodes that make up a single stree entry
+	m_initial_block_count                uint32   // the number of blocks of initial_block_size bytes we are told we must store, passed in from parent storage layer
 	m_initial_file_store_block_alignment uint32   // this is file position alignment over and above any directio alignment that might exist.
 	m_header                             File_store_header
 
@@ -49,48 +56,34 @@ type File_store_aligned struct {
 
 type File_store_header struct {
 	// must be capitalized or we can deserialize because it's not exported...
-	M_magic               uint64
-	M_store_size_in_bytes uint64 // the total size of file we have to work with.
-	M_nodes_per_block     uint32 // how many nodes per block, ie offspring nodes in mother node offspring array, plus 1. with this we can make an external reader
-	M_block_size          uint32 // the number of bytes we need to store a block of data, not the size of just the data, stored in header on disk for checking on load
-	M_block_count         uint32 // how many blocks we calculated this file/block device can store
-	M_root_node           uint32
-	M_free_position       uint32 // location of first free block (starts life at 1, because zero is our header storage area)
-	M_alignment           uint32 // size of block alignment, 0 = not aligned.
-	M_dirty               uint32 // was this filestore shutdown cleanly.
+	M_magic       uint64
+	M_block_size  uint32 // the number of bytes we need to store a block of data, not the size of just the data, stored in header on disk for checking on load
+	M_block_count uint32 // how many blocks we are told we must hold
+	M_alignment   uint32 // size of block alignment, 0 = not aligned.
+	M_dirty       uint32 // was this filestore shutdown cleanly.
 
-	// stree header format
-	/*        magic                    store size in bytes
-	00000000  5a 45 4e 53 54 35 4b 41 | 00 00 01 3d 4a 15 99 99  |ZENST5KA...=J...|
-	          nodes/block|block size  | block count|root node
-	00000010  00 00 01 01 00 00 14 38 | 0f b1 5d 42 00 00 00 01  |.......8..]B....|
-	          free pos    alignment   | dirty
-	00000020  00 00 00 01 00 00 00 00 | 00 00 00 00 00 00 00 00  |................|
+	// slookup_i file header format
+	/*          magic                     block size  block count
+		00000000  5a 45 4e 4f 53 53 4c 31 | 00 00 14 38 0f b1 5d 42  |ZENOSSL1...=J...|
+		          alignment   dirty
+	  00000010  00 00 00 00 00 00 00 00                            |.......8........|
 	*/
 }
 
 func New_file_store_header_copy(original *File_store_header) File_store_header {
 	return File_store_header{
-		M_magic:               original.M_magic,
-		M_store_size_in_bytes: original.M_store_size_in_bytes,
-		M_nodes_per_block:     original.M_nodes_per_block,
-		M_block_size:          original.M_block_size,
-		M_block_count:         original.M_block_count,
-		M_root_node:           original.M_root_node,
-		M_free_position:       original.M_free_position,
-		M_alignment:           original.M_alignment,
-		M_dirty:               original.M_dirty,
+		M_magic:       original.M_magic,
+		M_block_size:  original.M_block_size,
+		M_block_count: original.M_block_count,
+		M_alignment:   original.M_alignment,
+		M_dirty:       original.M_dirty,
 	}
 }
 
 func (this *File_store_header) Serialized_size() uint32 {
 	return 8 + // magic
-		8 + // m_store_size_in_bytes
-		4 + // m_nodes_per_block
 		4 + // m_block_size
 		4 + // m_block_count
-		4 + // m_root_node
-		4 + // m_free_position
 		4 + // m_alignment
 		4 // m_dirty
 }
@@ -121,20 +114,18 @@ func (this *File_store_header) Deserialize(log *Nixomosetools_logger, data *[]by
 }
 
 // verify that File_store_aligned implements backing_store
-var _ stree_v_lib.Stree_v_backing_store_interface = &File_store_aligned{}
-var _ stree_v_lib.Stree_v_backing_store_interface = (*File_store_aligned)(nil)
+var _ slookup_i_lib.Slookup_i_backing_store_interface = &File_store_aligned{}
+var _ slookup_i_lib.Slookup_i_backing_store_interface = (*File_store_aligned)(nil)
 
 func New_File_store_aligned(l *Nixomosetools_logger, store_filename string, block_size uint32,
-	alignment uint32, nodes_per_block uint32, iopath File_store_io_path) *File_store_aligned {
+	block_count uint32, alignment uint32, iopath File_store_io_path) *File_store_aligned {
 	var f File_store_aligned
 	f.log = l
 
 	f.m_datastore = nil
 	f.m_store_filename = store_filename
 	f.m_initial_block_size = block_size
-	f.m_initial_store_size_in_bytes = 0 // set in startup
-	f.m_initial_nodes_per_block = nodes_per_block
-	// m_header is set in init()
+	f.m_initial_block_count = block_count
 	f.m_initial_file_store_block_alignment = alignment
 	f.m_iopath = iopath
 
@@ -147,44 +138,47 @@ func (this *File_store_aligned) calc_block_count() uint32 {
 	   the user supplied alignment requirement into account. */
 
 	// get the size of an aligned block by asking for the position of block 1
-	var adjusted_block_size = this.calc_offset(1)                            // sounds like a tax term
-	var max_count = this.m_initial_store_size_in_bytes / adjusted_block_size // rounded down to fit
+	var adjusted_block_size = this.calc_offset(1)                                                                // sounds like a tax term
+	var max_count = uint64(this.m_initial_block_size) * uint64(this.m_initial_block_count) / adjusted_block_size // rounded down to fit
 	return uint32(max_count)
 }
 
 func (this *File_store_aligned) Get_store_information() (Ret, string) {
 	var m map[string]string = make(map[string]string)
 
-	if this.m_header.M_store_size_in_bytes == 0 {
-		return Error(this.log, "invalid file store parameters, store size is zero."), "{}"
+	if this.m_header.M_block_count == 0 {
+		return Error(this.log, "invalid file store parameters, store block_count is zero."), "{}"
 	}
 
 	m["backing_storage"] = this.m_store_filename
-	m["inital_store_size_in_bytes"] = tools.Prettylargenumber_uint64(this.m_initial_store_size_in_bytes)
-	m["inital_nodes_per_block"] = tools.Prettylargenumber_uint64(uint64(this.m_initial_nodes_per_block))
 	m["inital_block_size_in_bytes"] = tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size))
+	m["inital_block_count"] = tools.Prettylargenumber_uint64(uint64(this.m_initial_block_count))
 	m["number_of_blocks_available_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count))
+	m["total_storable_bytes"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count) * uint64(this.m_header.M_block_size))
 
-	/* this actually is not correct or useful, because this is the stored block size with the
-	   file store aligned per-block header. which is not the amount of data you can actually store
-		 in a block, thus multiplying it by the nodes per block is misleading. as we mention elsewhere
-		 additional_nodes is not a filestore thing, it's an stree thing and really shouldn't be here
-		 but it's good for verifying this is the backing file we think it should be, but it totally
-		 doesn't belong here, because it refers to the value size, not the file store block size.
-		 oh well. */
-	var max_node_size = this.m_header.M_block_size * (this.m_header.M_nodes_per_block + 1) // +1 is for mother node
-	m["node_size_in_bytes"] = tools.Prettylargenumber_uint64(uint64(max_node_size))
+	m["blocks_used_for_header"] = tools.Prettylargenumber_uint64(1)
+
+	m["total_blocks_used_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count) + 1)
+	m["total_bytes_used_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size) *
+		(uint64(this.m_header.M_block_count) + 1))
+	// which isn't true because it doesn't take alignment padding into account
 
 	m["physical_store_block_alignment"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_alignment))
 	m["dirty"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_dirty))
+
 	//_this is just informational, we don't need to know this, it gets calculated when we read/write offsets
 	m["number_of_physical_bytes_used_for_a_block"] = tools.Prettylargenumber_uint64(this.calc_offset(1))
+
+	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
+	m["total_bytes_used_in_backing_store_with_alignment"] = tools.Prettylargenumber_uint64(uint64(this.calc_offset(1)) *
+		(uint64(this.m_header.M_block_count) + 1))
+
 	/*_While_we're_here_we_can work out how much space is being wasted by alignment. why not. */
 	var waste_per_block = this.calc_offset(1) - uint64(this.m_header.M_block_size)
 	m["wasted_bytes_per_block"] = tools.Prettylargenumber_uint64(waste_per_block)
 	var total_waste = waste_per_block * uint64(this.m_header.M_block_count)
 	m["total_bytes_wasted_due_to_alignment_padding"] = tools.Prettylargenumber_uint64(total_waste)
-	var total_waste_percent = total_waste * 100 / this.m_header.M_store_size_in_bytes
+	var total_waste_percent = total_waste * 100 / (uint64(this.m_header.M_block_size) * uint64(this.m_header.M_block_count))
 	m["total_waste_percent"] = tools.Prettylargenumber_uint64(total_waste_percent)
 
 	bytesout, err := json.MarshalIndent(m, "", " ")
@@ -193,6 +187,8 @@ func (this *File_store_aligned) Get_store_information() (Ret, string) {
 	}
 	return nil, string(bytesout)
 }
+/// 
+xxxxxxxxzzzzzz got up to here.
 
 func (this *File_store_aligned) Init() Ret {
 
@@ -209,7 +205,7 @@ func (this *File_store_aligned) Init() Ret {
 
 	/* Clear out the dataset file and write new blank metadata. */
 	this.log.Debug("initting file backing storage: " + this.m_store_filename)
-	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_STREE_V_MAGIC_5k
+	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_slookup_i_MAGIC_5k
 	this.m_header.M_store_size_in_bytes = this.m_initial_store_size_in_bytes
 	this.log.Debug("inital store size in bytes: ", tools.Prettylargenumber_uint64(this.m_initial_store_size_in_bytes))
 
@@ -463,7 +459,7 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 	/* this means the header doesn't match what we expect, and we should init the backing storage,
 	I can see where this could be a dangerously bad idea, so we're just going to error out, let
 	the user deal with it. */
-	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_STREE_V_MAGIC_5k {
+	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_slookup_i_MAGIC_5k {
 		return Error(this.log, "magic number doesn't match in backing storage")
 	}
 
@@ -724,7 +720,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 	return nil, bresp
 }
 
-func (this *File_store_aligned) Load(block_num uint32) (Ret, *[]byte) {
+func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte) {
 	/* read in a node at this block_num and return it.
 	 * As originally designed we'd always be writing a full block and therefore
 	 * be able to read a full block always, but now we have to allow for short blocks
@@ -816,7 +812,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 	return nil
 }
 
-func (this *File_store_aligned) Store(block_num uint32, data *[]byte) Ret {
+func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte) Ret {
 	// store and load must be less than or equal to the block size.
 	// we now allow for writing less than an entire block, and that's okay
 	// as long as we can read it back and return exactly what we were given.
