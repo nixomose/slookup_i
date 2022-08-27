@@ -1073,7 +1073,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			var amount uint32 = block_group_count_required - current_block_group_count
 			this.log.Debug("allocating " + tools.Uint32tostring(amount) + " new block_group entries to expand for update.")
 			var iresp []uint32
-			ret, iresp = this.m_storage.Allocate(amount)
+			ret, iresp = this.m_storage.Allocate(amount) // this is now an stree thing not a backing store thing. xxxxxxxxxxz
 			if ret != nil {
 				return ret
 			}
@@ -1264,6 +1264,8 @@ func (this *Slookup_i) deallocate() tools.Ret {
 	if ret = this.store_header(); ret != nil {
 		return ret
 	}
+
+	 if weve shrunk, which we have, tell backing store that it can shrink if it wants
 	return nil
 }
 
