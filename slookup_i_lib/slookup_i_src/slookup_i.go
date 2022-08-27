@@ -202,76 +202,9 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		return ret
 	}
 
-	if ret = this.initial_load_and_verify_header(); ret != nil {
+	if ret = this.m_header.Initial_load_and_verify_header(); ret != nil {
 		return ret
 	}
-	return nil
-}
-func (this *Slookup_i) initial_load_and_verify_header() tools.Ret {
-	/* now that we can read from the backing store, get the header and verify that the data_block_size in the header
-	   that defines the backing store layout, matches what the caller sent.
-		 this is only ever called once on startup so it reads from the backing
-		 store directly. the header spends its life in memory and is just written
-		 to disk as part of transactions. */
-	var data *[]byte
-	var ret tools.Ret
-	// this is about the only thing that goes after the backing store directly and doesn't go through the transaction log
-	if ret, data = this.m_storage.Load_block_data(0); ret != nil {
-		return ret
-	}
-
-	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0,
-		this.m_verify_slookup_i_data_block_size, this.m_verify_slookup_i_block_group_count)
-
-	var measure_entry_serialized_size uint32 = measure_entry.Serialized_size()
-	this.m_entry_size_cache = measure_entry_serialized_size
-
-	if ret = this.m_header.Deserialize(this.log, data); ret != nil {
-		return ret
-	}
-
-	// now just compare the fields we can
-
-	if this.m_header.M_lookup_table_entry_count != this.m_verify_slookup_i_addressable_blocks {
-		return tools.Error(this.log, "the recorded lookup entry count ", this.m_header.M_lookup_table_entry_count,
-			" doesn't equal the supplied addressable_block count of ", this.m_verify_slookup_i_addressable_blocks)
-	}
-
-	if this.m_header.M_data_block_size != this.m_verify_slookup_i_data_block_size {
-		return tools.Error(this.log, "the stored data block size ", this.m_header.M_data_block_size, " doesn't equal ",
-			"the supplied block size of ", this.m_verify_slookup_i_data_block_size)
-	}
-
-	if this.m_header.M_block_group_count != this.m_verify_slookup_i_block_group_count {
-		return tools.Error(this.log, "the stored block group count ", this.m_header.M_block_group_count, " doesn't equal ",
-			"the supplied block group count of ", this.m_verify_slookup_i_block_group_count)
-	}
-
-	if this.m_header.M_lookup_table_entry_size != measure_entry_serialized_size {
-		return tools.Error(this.log, "the stored entry serialized size ", this.m_header.M_lookup_table_entry_size, " doesn't equal ",
-			"the calculated entry serialized size of ", measure_entry_serialized_size)
-	}
-
-	// we could maybe also verify the positions of the start of lookup table, tlog and data blocks, but those could change and that's valid.
-	return nil
-}
-
-func (this *Slookup_i) store_header() tools.Ret {
-	/* write the header to disk */
-
-	var data *[]byte
-	var ret tools.Ret
-
-	if ret, data = this.m_header.Serialize(this.log); ret != nil {
-		return ret
-	}
-
-	/* writes to the header go through the tlog so that header changes can also be
-	part of a transaction. */
-	if ret = this.Write(0, data); ret != nil {
-		return ret
-	}
-
 	return nil
 }
 
@@ -1289,7 +1222,7 @@ func (this *Slookup_i) deallocate() tools.Ret {
 		return ret
 	}
 
-	if ret = this.store_header(); ret != nil {
+	if ret = this.m_header.store_header(); ret != nil {
 		return ret
 	}
 
