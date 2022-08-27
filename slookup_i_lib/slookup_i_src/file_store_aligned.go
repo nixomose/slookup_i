@@ -609,30 +609,30 @@ func (this *File_store_aligned) Shutdown() Ret {
 	return nil
 }
 
-func (this *File_store_aligned) read_raw_data_length(block_num uint32, length uint32) (Ret, []byte) {
+// func (this *File_store_aligned) read_raw_data_length(block_num uint32, length uint32) (Ret, []byte) {
 
-	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we do any math on it.
-	 * since we only ever read one block at a time (hmmm...) we won't have to worry about there being gaps in the data */
+// 	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we do any math on it.
+// 	 * since we only ever read one block at a time (hmmm...) we won't have to worry about there being gaps in the data */
 
-	var offset uint64 = this.calc_user_offset(block_num)
-	var bresp []byte = this.m_iopath.AllocBuffer(int(length)) // we offset block writes for alignment, but we only actually have to read our block size
-	var bytes_read, err = this.m_datastore.ReadAt(bresp, int64(offset))
-	if err != nil {
-		return Error(this.log, "Error reading from data store at position  ", offset, " length ", length,
-			" error: ", err), nil
-	}
-	/* if we had to pad the block for directio, shrink the slice to the actual size of data expected */
-	if len(bresp) > int(length) {
-		bresp = bresp[0:length]
-		bytes_read = int(length)
-	}
+// 	var offset uint64 = this.calc_user_offset(block_num)
+// 	var bresp []byte = this.m_iopath.AllocBuffer(int(length)) // we offset block writes for alignment, but we only actually have to read our block size
+// 	var bytes_read, err = this.m_datastore.ReadAt(bresp, int64(offset))
+// 	if err != nil {
+// 		return Error(this.log, "Error reading from data store at position  ", offset, " length ", length,
+// 			" error: ", err), nil
+// 	}
+// 	/* if we had to pad the block for directio, shrink the slice to the actual size of data expected */
+// 	if len(bresp) > int(length) {
+// 		bresp = bresp[0:length]
+// 		bytes_read = int(length)
+// 	}
 
-	if uint32(len(bresp)) != length {
-		return Error(this.log, "Error reading from data store, tried to read ", length, " bytes, only read ", bytes_read), nil
-	}
+// 	if uint32(len(bresp)) != length {
+// 		return Error(this.log, "Error reading from data store, tried to read ", length, " bytes, only read ", bytes_read), nil
+// 	}
 
-	return nil, bresp
-}
+// 	return nil, bresp
+// }
 
 /* file backing store only does blocks now (even if they're not aligned blocks.) we used to let the stree layer
 ask the file store to load parts of a block, but that wasn't a good idea in retrospect. it is now slookup_i's problem
@@ -702,6 +702,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 }
 
 // user facing read write interface, includes file header offset
+
 func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte) {
 	/* read in the data block_num and return it.
 	 * As originally designed we'd always be writing a full block and therefore
@@ -805,6 +806,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 }
 
 // user facing read write interface, includes file header offset
+
 func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte) Ret {
 	// store and load must be less than or equal to the block size.
 	// we now allow for writing less than an entire block, and that's okay
@@ -881,6 +883,28 @@ func (this *File_store_aligned) Get_total_blocks() (Ret, uint32) {
 
 // 	return this.set_free_position(this.m_header.M_free_position - 1)
 // }
+
+func (this *File_store_aligned) Mark_end(free_position uint32) tools.Ret {
+	if this.m_datastore == nil {
+		return Error(this.log, "Can't mark the end of the slookup file store: ", this.m_store_filename, ", filestore is shut down or not started.")
+	}
+
+	var ret, is_block_device = this.is_block_device(this.m_store_filename)
+	if ret != nil {
+		return ret
+	}
+
+	if is_block_device == false {
+		// now size the file appropriately, if it fails, no big deal, it's a block device. maybe work that out up front and we avoid running the error case on every shrink
+		var newfilesize int64 = int64(free_position) * int64(this.m_header.M_block_size)
+		var err = os.Truncate(this.m_store_filename, int64(newfilesize))
+		if err != nil {
+			return Error(this.log, "unable to truncate file store", this.m_store_filename,
+				" error: ", err.Error())
+		}
+	}
+	return nil
+}
 
 func (this *File_store_aligned) Wipe() Ret {
 	/* write zeros over the first block. */
