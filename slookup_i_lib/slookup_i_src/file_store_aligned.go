@@ -34,7 +34,7 @@ without a backing file store and it won't need this file store header, yada yada
 
 const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
 const CHECK_START_BLANK_BYTES int = 4096
-const STREE_FILEMODE = 0755
+const SLOOKUP_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
 const S_IFMT uint32 = 00170000
 
@@ -98,7 +98,7 @@ func (this *File_store_header) serialize(log *Nixomosetools_logger) (Ret, *[]byt
 	structbuf := &bytes.Buffer{}
 	err := binary.Write(structbuf, binary.BigEndian, workarea)
 	if err != nil { // this sick
-		return Error(log, "unable to serialize stree header: ", err), nil
+		return Error(log, "unable to serialize slookup header: ", err), nil
 	}
 	var b []byte = structbuf.Bytes()
 	return nil, &b
@@ -110,7 +110,7 @@ func (this *File_store_header) Deserialize(log *Nixomosetools_logger, data *[]by
 	var databuffer *bytes.Buffer = bytes.NewBuffer(*data)
 	var err = binary.Read(databuffer, binary.BigEndian, this)
 	if err != nil {
-		return Error(log, "unable to deserialize stree header: ", err.Error())
+		return Error(log, "unable to deserialize slookup header: ", err.Error())
 	}
 
 	return nil
@@ -523,7 +523,7 @@ func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 	}
 
 	var err error
-	this.m_datastore, err = this.m_iopath.OpenFile(this.m_store_filename, os.O_RDONLY, STREE_FILEMODE)
+	this.m_datastore, err = this.m_iopath.OpenFile(this.m_store_filename, os.O_RDONLY, SLOOKUP_FILEMODE)
 	if err != nil {
 		this.m_datastore = nil // just in case
 
@@ -543,7 +543,7 @@ func (this *File_store_aligned) Open_datastore() tools.Ret {
 		flags |= os.O_SYNC // same as syscall.O_SYNC
 	}
 	var err error
-	this.m_datastore, err = this.m_iopath.OpenFile(this.m_store_filename, flags, STREE_FILEMODE)
+	this.m_datastore, err = this.m_iopath.OpenFile(this.m_store_filename, flags, SLOOKUP_FILEMODE)
 	if err != nil {
 		this.m_datastore = nil // just in case
 		return Error(this.log, "Unable to open physical store: ", this.m_store_filename, " error: ", err)
@@ -752,11 +752,11 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 	if len(*data) > int(this.m_header.M_block_size) {
 		return Error(this.log, "write_raw_data asked to write ", len(*data), " bytes but the block size is only ", this.m_header.M_block_size)
 	}
-	/* here we used to pad the data to write to the next stree block size, now we're going to pad to 4k */
+	/* here we used to pad the data to write to the next slookup block size, now we're going to pad to 4k */
 
 	var to_write = data
 
-	/* this is kinda crappy, since there are a bunch of different stree things that pass us buffers that we use to
+	/* this is kinda crappy, since there are a bunch of different slookup things that pass us buffers that we use to
 	   write, we need to pass them an allocator so they can created aligned buffers, that's a bit of a mess right now
 	   so we'll just copy it into a buffer we make. more copies, sigh */
 
@@ -910,10 +910,10 @@ func (this *File_store_aligned) Wipe() Ret {
 	/* write zeros over the first block. */
 
 	if this.m_datastore == nil {
-		return Error(this.log, "Can't wipe stree file store: ", this.m_store_filename, ", filestore is shut down or not started.")
+		return Error(this.log, "Can't wipe slookup file store: ", this.m_store_filename, ", filestore is shut down or not started.")
 	}
 
-	this.log.Info("wiping stree backing file store: ", this.m_store_filename)
+	this.log.Info("wiping slookup backing file store: ", this.m_store_filename)
 
 	var zeros = make([]byte, CHECK_START_BLANK_BYTES)
 	var ret = this.write_raw_data(0, &zeros)
@@ -935,7 +935,7 @@ func (this *File_store_aligned) Dispose() Ret {
 	}
 
 	if is_block_device == false {
-		this.log.Info("deleting stree backing file store: ", this.m_store_filename)
+		this.log.Info("deleting slookup backing file store: ", this.m_store_filename)
 		var err = os.Remove(this.m_store_filename)
 		if err != nil {
 			return Error(this.log, "error trying to delete: ", this.m_store_filename, " error: ", err)
