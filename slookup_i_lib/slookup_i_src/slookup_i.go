@@ -1073,7 +1073,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			var amount uint32 = block_group_count_required - current_block_group_count
 			this.log.Debug("allocating " + tools.Uint32tostring(amount) + " new block_group entries to expand for update.")
 			var iresp []uint32
-			ret, iresp = this.m_storage.Allocate(amount) // this is now an stree thing not a backing store thing. xxxxxxxxxxz
+			ret, iresp = this.allocate(amount) // this is now an stree thing not a backing store thing. xxxxxxxxxxz
 			if ret != nil {
 				return ret
 			}
@@ -1246,6 +1246,33 @@ func (this *Slookup_i) copy_data_block(move_to uint32, move_from uint32) tools.R
 	return this.Write(move_to, data)
 }
 
+/* allocate and deallocated used to be in the backing store, now it's here.
+same basic idea though, provide the ability to acquire multiple blocks at once
+but you can only free one at a time. */
+
+func (this *Slookup_i) allocate(amount uint32) (tools.Ret, []uint32) {
+	/* allocate a number of blocks from free position and return an array of the positions allocated */
+	/* see if there's enough room to add these nodes and if so, return their
+	   positions in the array and up the free position accordingly */
+	/* if we ever go concurrent we're going to have to lock this and a lot of other things I suppose */
+
+	var lp uint32
+	var rvals []uint32 = make([]uint32, amount)
+	for lp = 0; lp < amount; lp++ {
+
+		var ret, free_position = this.Get_free_position()
+		if ret != nil {
+			return ret, nil
+		}
+		rvals[lp] = free_position
+		free_position += 1
+		if ret = this.Set_free_position(free_position); ret != nil {
+			return ret, nil
+		}
+	}
+	return nil, rvals
+}
+
 func (this *Slookup_i) deallocate() tools.Ret {
 	/* slookup_i level deallocate last allocated block.
 	lower the free position by one, write the header to disk
@@ -1265,7 +1292,12 @@ func (this *Slookup_i) deallocate() tools.Ret {
 		return ret
 	}
 
-	 if weve shrunk, which we have, tell backing store that it can shrink if it wants
+	// if we've shrunk, which we have, tell backing store that it can shrink if it wants
+
+	if ret = this.m_storage.Mark_end(free_position); ret != nil {
+		return ret
+	}
+
 	return nil
 }
 
@@ -1331,9 +1363,6 @@ func (this *Slookup_i) read_internal(block_num uint32) (tools.Ret, *[]byte) {
 	///xxxxz make sure this returns the actual length expected
 	return nil, respdata
 }
-
-// xxxxz //////// got up to here
-///////////	xxxz //xxxzgot up to here
 
 /* the rest of this file is filled with all the crazy complicated stuff needed to make delete work in all cases
 for stree. slookup_i is soooooo much way simpler we're not even going to look at it, we're just going to implement
