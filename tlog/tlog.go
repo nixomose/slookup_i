@@ -1,3 +1,4 @@
+/* Package tlog has a comment */
 package tlog
 
 import (
@@ -10,7 +11,8 @@ import (
    you start a transaction
 	 you write stuff to it,
 	 you read stuff from it
-	 you end/apply it
+	 you mark it commit or not
+	 you end/apply it, if commit not set, we roll it back/don't write the finish transcation block in the tlog
 
 	 everything in stored in memory and on disk, all operations
 	 are done out of memory, except recovery if we are started up
@@ -47,6 +49,7 @@ we mainatined the order of all the writes.  I think it had a quick hash lookup t
 everything comes full circle. */
 
 type Transaction_log struct {
+	log *tools.Nixomosetools_logger
 }
 
 // verify that tlog implements tlog_interface
@@ -54,17 +57,43 @@ var _ slookup_i_lib_interfaces.Transaction_log_interface = &Transaction_log{}
 var _ slookup_i_lib_interfaces.Transaction_log_interface = (*Transaction_log)(nil)
 
 func (this *Transaction_log) Init() tools.Ret {
-
+	return tools.Error(this.log, "not implemented yet.")
 }
 
-func (this *Transaction_log) Startup() tools.Ret { // assumes replay
+func (this *Transaction_log) Startup(force bool) tools.Ret { // assumes replay
+	return tools.Error(this.log, "not implemented yet.")
 }
 func (this *Transaction_log) Shutdown() tools.Ret { // should not flush the last transaction if still in flight.
+	return tools.Error(this.log, "not implemented yet.")
 }
 func (this *Transaction_log) Start_transaction() tools.Ret {
+	return tools.Error(this.log, "not implemented yet.")
 }
+
 func (this *Transaction_log) Read_block(block_num uint32) (tools.Ret, *[]byte) {
+	return tools.Error(this.log, "not implemented yet."), nil
+}
+
+func (this *Transaction_log) Read_block_range(block_num_start uint32, block_num_end uint32) (tools.Ret, *[]byte) {
+	return tools.Error(this.log, "not implemented yet."), nil
+}
+func (this *Transaction_log) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
+	return tools.Error(this.log, "not implemented yet."), nil
 }
 func (this *Transaction_log) Write_block(block_num uint32, n *[]byte) tools.Ret {
+	return tools.Error(this.log, "not implemented yet.")
 }
-func (this *Transaction_log) End_transaction() tools.Ret {}
+func (this *Transaction_log) Write_block_range(start_block uint32, end_block uint32, alldata *[]byte) tools.Ret {
+	return tools.Error(this.log, "not implemented yet.")
+}
+
+func (this *Transaction_log) Write_block_list(block_list []uint32, alldata *[]byte) tools.Ret {
+	return tools.Error(this.log, "not implemented yet.")
+}
+
+func (this *Transaction_log) Set_commit() {
+}
+
+func (this *Transaction_log) End_transaction() tools.Ret {
+	return tools.Error(this.log, "not implemented yet.")
+}
