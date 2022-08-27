@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"syscall"
 
-	. "github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 
 	"github.com/nixomose/nixomosegotools/tools"
@@ -42,7 +41,7 @@ const S_IFMT uint32 = 00170000
 const FILE_HEADER_BLOCK_OFFSET uint32 = 1
 
 type File_store_aligned struct {
-	log *Nixomosetools_logger
+	log *tools.Nixomosetools_logger
 
 	m_store_filename                     string
 	m_datastore                          *os.File // the file handle to backing file/block device
@@ -91,26 +90,26 @@ func (this *File_store_header) Serialized_size() uint32 {
 		4 // m_dirty
 }
 
-func (this *File_store_header) serialize(log *Nixomosetools_logger) (Ret, *[]byte) {
+func (this *File_store_header) serialize(log *tools.Nixomosetools_logger) (tools.Ret, *[]byte) {
 	/* serialize this header into a byte array */
 	// the binary serializer eats buffers, so once again, we must copy...
 	var workarea = New_file_store_header_copy(this)
 	structbuf := &bytes.Buffer{}
 	err := binary.Write(structbuf, binary.BigEndian, workarea)
 	if err != nil { // this sick
-		return Error(log, "unable to serialize slookup header: ", err), nil
+		return tools.Error(log, "unable to serialize slookup header: ", err), nil
 	}
 	var b []byte = structbuf.Bytes()
 	return nil, &b
 }
 
-func (this *File_store_header) Deserialize(log *Nixomosetools_logger, data *[]byte) Ret {
+func (this *File_store_header) deserialize(log *tools.Nixomosetools_logger, data *[]byte) tools.Ret {
 	/* deserialize data into header fields, we steal the provided data array */
 
 	var databuffer *bytes.Buffer = bytes.NewBuffer(*data)
 	var err = binary.Read(databuffer, binary.BigEndian, this)
 	if err != nil {
-		return Error(log, "unable to deserialize slookup header: ", err.Error())
+		return tools.Error(log, "unable to deserialize slookup header: ", err.Error())
 	}
 
 	return nil
@@ -120,7 +119,7 @@ func (this *File_store_header) Deserialize(log *Nixomosetools_logger, data *[]by
 var _ slookup_i_lib.Slookup_i_backing_store_interface = &File_store_aligned{}
 var _ slookup_i_lib.Slookup_i_backing_store_interface = (*File_store_aligned)(nil)
 
-func New_File_store_aligned(l *Nixomosetools_logger, store_filename string, block_size uint32,
+func New_File_store_aligned(l *tools.Nixomosetools_logger, store_filename string, block_size uint32,
 	block_count uint32, alignment uint32, iopath File_store_io_path) *File_store_aligned {
 	var f File_store_aligned
 	f.log = l
@@ -146,11 +145,11 @@ func New_File_store_aligned(l *Nixomosetools_logger, store_filename string, bloc
 // 	return uint32(max_count)
 // }
 
-func (this *File_store_aligned) Get_store_information() (Ret, string) {
+func (this *File_store_aligned) Get_store_information() (tools.Ret, string) {
 	var m map[string]string = make(map[string]string)
 
 	if this.m_header.M_block_count == 0 {
-		return Error(this.log, "invalid file store parameters, store block_count is zero."), "{}"
+		return tools.Error(this.log, "invalid file store parameters, store block_count is zero."), "{}"
 	}
 
 	m["backing_storage"] = this.m_store_filename
@@ -186,22 +185,22 @@ func (this *File_store_aligned) Get_store_information() (Ret, string) {
 
 	bytesout, err := json.MarshalIndent(m, "", " ")
 	if err != nil {
-		return Error(this.log, "unable to marshal backing store information into json"), "{}"
+		return tools.Error(this.log, "unable to marshal backing store information into json"), "{}"
 	}
 	return nil, string(bytesout)
 }
 
-func (this *File_store_aligned) Init() Ret {
+func (this *File_store_aligned) Init() tools.Ret {
 	/* init a new backing store, this writes the FILE header, not the slookup_header, that's
 	   slookup_i's problem. */
 
 	this.log.Info(this.m_store_filename, " will be formatted with an slookup_i file header.")
 
 	if this.m_initial_block_size == 0 {
-		return Error(this.log, "invalid file store parameters, block size is zero.")
+		return tools.Error(this.log, "invalid file store parameters, block size is zero.")
 	}
 	if this.m_initial_block_count == 0 {
-		return Error(this.log, "invalid file store parameters, block count is zero.")
+		return tools.Error(this.log, "invalid file store parameters, block count is zero.")
 	}
 
 	/* Clear out the dataset file and write new blank metadata. */
@@ -253,15 +252,15 @@ func (this *File_store_aligned) Init() Ret {
 		return ret
 	}
 
-	return this.write_header_to_disk(true)
+	return this.store_header(true)
 }
 
-func (this *File_store_aligned) write_header_to_disk(initting bool) Ret {
+func (this *File_store_aligned) store_header(initting bool) tools.Ret {
 	/* everybody goes through here so we can calculate checksum */
 	// do a checksum, hash whatever of the data in the header and add it to the end.
 
 	var data *[]byte
-	var ret Ret
+	var ret tools.Ret
 	ret, data = this.m_header.serialize(this.log)
 	if ret != nil {
 		return ret
@@ -283,7 +282,7 @@ func (this *File_store_aligned) write_header_to_disk(initting bool) Ret {
 	return this.write_raw_data(0, &hashed_data)
 }
 
-func (this *File_store_aligned) is_block_device(path string) (Ret, bool) {
+func (this *File_store_aligned) is_block_device(path string) (tools.Ret, bool) {
 
 	/* if it's not a block device, but a file that may not exist, lop off the filename and go for the path,
 	   that thing won't be a block device either. if they give you the path of a block device that doesn't exist
@@ -293,11 +292,11 @@ func (this *File_store_aligned) is_block_device(path string) (Ret, bool) {
 		anything. So we should touch it, so it exists, so we can check its empty header. */
 		var newfile, err = os.Create(path)
 		if err != nil {
-			return Error(this.log, "unable to create: ", path, " error: ", err), false
+			return tools.Error(this.log, "unable to create: ", path, " error: ", err), false
 		}
 		err = newfile.Close() // someday we will check for errors.
 		if err != nil {
-			return Error(this.log, "Error closing new file: ", path, " error: ", err), false
+			return tools.Error(this.log, "Error closing new file: ", path, " error: ", err), false
 		}
 
 		path = filepath.Dir(path) // get the path of the file we just created
@@ -306,14 +305,14 @@ func (this *File_store_aligned) is_block_device(path string) (Ret, bool) {
 	/* if it's a block device, it might be a symlink, follow first. */
 	var realpath, err = filepath.EvalSymlinks(path)
 	if err != nil {
-		return Error(this.log, "can't resolve symlinl: ", path, " error: ", err), false
+		return tools.Error(this.log, "can't resolve symlinl: ", path, " error: ", err), false
 	}
 	path = realpath
 
 	var st syscall.Stat_t
 	err = syscall.Lstat(path, &st)
 	if err != nil {
-		return Error(this.log, "Error getting lstat of: ", path, " error: ", err), false
+		return tools.Error(this.log, "Error getting lstat of: ", path, " error: ", err), false
 	}
 	if st.Mode&S_IFMT == S_ISBLK { // got this from the kernel macro
 		return nil, true
@@ -321,7 +320,7 @@ func (this *File_store_aligned) is_block_device(path string) (Ret, bool) {
 	return nil, false
 }
 
-func (this *File_store_aligned) Get_size_of_path(path string) (Ret, uint64) {
+func (this *File_store_aligned) Get_size_of_path(path string) (tools.Ret, uint64) {
 	/* find out how much space is available at the specified path or on the specified block device.
 	   slookup_i doesn't use this to determine anything, because it is driven entirely by the caller's
 		 specifications, but they can use this to determine what's available */
@@ -335,7 +334,7 @@ func (this *File_store_aligned) Get_size_of_path(path string) (Ret, uint64) {
 		/* seek to end and get position */
 		file, err := os.Open(path)
 		if err != nil {
-			return Error(this.log, "Unable to open: ", path, " error: ", err), 0
+			return tools.Error(this.log, "Unable to open: ", path, " error: ", err), 0
 		}
 
 		defer func() {
@@ -346,7 +345,7 @@ func (this *File_store_aligned) Get_size_of_path(path string) (Ret, uint64) {
 		}()
 		pos, err := file.Seek(0, io.SeekEnd)
 		if err != nil {
-			return Error(this.log, "Unable to seek to end of: ", path, " error: ", err), 0
+			return tools.Error(this.log, "Unable to seek to end of: ", path, " error: ", err), 0
 		}
 		return nil, uint64(pos)
 	}
@@ -358,14 +357,14 @@ func (this *File_store_aligned) Get_size_of_path(path string) (Ret, uint64) {
 	var stat unix.Statfs_t
 	var err = unix.Statfs(path, &stat)
 	if err != nil {
-		return Error(this.log, "Unable to stat: ", path, " error: ", err), 0
+		return tools.Error(this.log, "Unable to stat: ", path, " error: ", err), 0
 	}
 	var total = stat.Blocks * uint64(stat.Bsize)
 	//xxxz this doesn't work for loop devices.
 	return nil, total
 }
 
-// func (this *File_store_aligned) Get_usable_storage_bytes(path string) (Ret, uint64) {
+// func (this *File_store_aligned) Get_usable_storage_bytes(path string) (tools.Ret, uint64) {
 // 	/* 1/8/2021 using the disk size as the total from which to take 80%
 // 	 * doesn't work too well. instead let's try free space and then we
 // 	 * can take 80% of that,
@@ -381,7 +380,7 @@ func (this *File_store_aligned) Get_size_of_path(path string) (Ret, uint64) {
 // 	return nil, total
 // }
 
-func (this *File_store_aligned) Is_backing_store_uninitialized() (Ret, bool) {
+func (this *File_store_aligned) Is_backing_store_uninitialized() (tools.Ret, bool) {
 	/* Read the first 4k and see if it's all zeroes. */
 
 	var ret = this.Open_datastore_readonly()
@@ -402,7 +401,7 @@ func (this *File_store_aligned) Is_backing_store_uninitialized() (Ret, bool) {
 			this.log.Info("EOF reading header, empty file store, initializing new file store...")
 			return nil, true
 		}
-		return Error(this.log, "Error reading from header block in data store block zero for length ", CHECK_START_BLANK_BYTES,
+		return tools.Error(this.log, "Error reading from header block in data store block zero for length ", CHECK_START_BLANK_BYTES,
 			" error: ", err), false
 	}
 
@@ -410,7 +409,7 @@ func (this *File_store_aligned) Is_backing_store_uninitialized() (Ret, bool) {
 	/* block devices should fail on this, and frankly if we can read something, and don't get EOF,
 	   we don't know what it is, so error out, don't init it. */
 	if bytes_read != int(CHECK_START_BLANK_BYTES) {
-		return Error(this.log, "Unable to read from header block in data store block zero for length ", CHECK_START_BLANK_BYTES, ", only received ", bytes_read, " bytes"), false
+		return tools.Error(this.log, "Unable to read from header block in data store block zero for length ", CHECK_START_BLANK_BYTES, ", only received ", bytes_read, " bytes"), false
 	}
 
 	for lp := 0; lp < int(CHECK_START_BLANK_BYTES); lp++ {
@@ -421,7 +420,7 @@ func (this *File_store_aligned) Is_backing_store_uninitialized() (Ret, bool) {
 	return nil, true
 }
 
-func (this *File_store_aligned) Load_header_and_check_magic(check_device_params bool) Ret {
+func (this *File_store_aligned) load_header_and_check_magic(check_device_params bool) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
@@ -436,22 +435,22 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 
 	// pull off the hash at the end before we do anything else
 	if len(data) < crypto.MD5.Size() {
-		return Error(this.log, "unable to read header, not enough data for checkssum, length is only ", crypto.MD5.Size)
+		return tools.Error(this.log, "unable to read header, not enough data for checkssum, length is only ", crypto.MD5.Size)
 	}
 	var header_data = data[0:int(this.m_header.Serialized_size())]
 	var m5 = data[int(this.m_header.Serialized_size()) : this.m_header.Serialized_size()+uint32(crypto.MD5.Size())]
 
 	var m5check = md5.Sum(header_data)
 	if bytes.Compare(m5check[:], m5) != 0 {
-		return Error(this.log, "unable to read header, hash check failed")
+		return tools.Error(this.log, "unable to read header, hash check failed")
 	}
 
 	data = header_data
 	if len(data) < int(this.m_header.Serialized_size()) {
-		return Error(this.log, "unable to read header of ", this.m_header.Serialized_size(), " got back ", bytes_read)
+		return tools.Error(this.log, "unable to read header of ", this.m_header.Serialized_size(), " got back ", bytes_read)
 	}
 
-	ret = this.m_header.Deserialize(this.log, &data)
+	ret = this.m_header.deserialize(this.log, &data)
 	if ret != nil {
 		return ret
 	}
@@ -460,23 +459,23 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 	I can see where this could be a dangerously bad idea, so we're just going to error out, let
 	the user deal with it. */
 	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC {
-		return Error(this.log, "magic number doesn't match in backing storage")
+		return tools.Error(this.log, "magic number doesn't match in backing storage")
 	}
 
 	if check_device_params {
 		// see if they header matches what the caller specified
 		if this.m_header.M_block_size != this.m_initial_block_size {
-			return Error(this.log, "block size store cached in backing storage ", this.m_header.M_block_size,
+			return tools.Error(this.log, "block size store cached in backing storage ", this.m_header.M_block_size,
 				" doesn't match initial block size ", this.m_initial_block_size)
 		}
 
 		if this.m_header.M_block_count != this.m_initial_block_count {
-			return Error(this.log, "block count cached in backing storage ", this.m_header.M_block_count,
+			return tools.Error(this.log, "block count cached in backing storage ", this.m_header.M_block_count,
 				" doesn't match initial block count ", this.m_initial_block_count)
 		}
 
 		if this.m_header.M_alignment != this.m_initial_file_store_block_alignment {
-			return Error(this.log, "alignment ", this.m_header.M_alignment,
+			return tools.Error(this.log, "alignment ", this.m_header.M_alignment,
 				" doesn't match initial alignment ", this.m_initial_file_store_block_alignment)
 		}
 	} else { // if we should check device fields against the header or are we just reading the header to display.
@@ -489,7 +488,7 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 	return nil // all is well.
 }
 
-// func (this *File_store_aligned) calculate_usable_storage() Ret {
+// func (this *File_store_aligned) calculate_usable_storage() tools.Ret {
 // 	var r Ret
 // 	r, this.m_initial_store_size_in_bytes = this.Get_usable_storage_bytes(this.m_store_filename)
 // 	if r != nil {
@@ -498,14 +497,14 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 // 	// f.log.Debug("usable storage bytes on storage device: ", f.m_store_filename, " = ",
 // 	// 	tools.Prettylargenumber_uint64(f.m_initial_store_size_in_bytes))
 // 	if this.m_initial_store_size_in_bytes == 0 {
-// 		return Error(this.log, "get usable storage bytes returned zero. Can't allocate storage.")
+// 		return tools.Error(this.log, "get usable storage bytes returned zero. Can't allocate storage.")
 // 	}
 // 	return nil
 // }
 
 func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 	if this.m_datastore != nil {
-		return Error(this.log, "physical store already opened")
+		return tools.Error(this.log, "physical store already opened")
 	}
 
 	/* so this is interesting. this is called for getting status and verifying the uninitializedness or not
@@ -519,7 +518,7 @@ func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 		return ret
 	}
 	if found == false {
-		return ErrorWithCodeNoLog(this.log, int(syscall.ENOENT), "file does not exist: ", this.m_store_filename)
+		return tools.ErrorWithCodeNoLog(this.log, int(syscall.ENOENT), "file does not exist: ", this.m_store_filename)
 	}
 
 	var err error
@@ -527,7 +526,7 @@ func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 	if err != nil {
 		this.m_datastore = nil // just in case
 
-		return Error(this.log, "Unable to open physical store: ", this.m_store_filename, " error: ", err)
+		return tools.Error(this.log, "Unable to open physical store: ", this.m_store_filename, " error: ", err)
 	}
 	this.m_readonly = true
 	return nil
@@ -535,7 +534,7 @@ func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 
 func (this *File_store_aligned) Open_datastore() tools.Ret {
 	if this.m_datastore != nil {
-		return Error(this.log, "physical store already opened")
+		return tools.Error(this.log, "physical store already opened")
 	}
 
 	var flags = os.O_RDWR
@@ -546,13 +545,13 @@ func (this *File_store_aligned) Open_datastore() tools.Ret {
 	this.m_datastore, err = this.m_iopath.OpenFile(this.m_store_filename, flags, SLOOKUP_FILEMODE)
 	if err != nil {
 		this.m_datastore = nil // just in case
-		return Error(this.log, "Unable to open physical store: ", this.m_store_filename, " error: ", err)
+		return tools.Error(this.log, "Unable to open physical store: ", this.m_store_filename, " error: ", err)
 	}
 	this.m_readonly = false
 	return nil
 }
 
-func (this *File_store_aligned) Startup(force bool) Ret {
+func (this *File_store_aligned) Startup(force bool) tools.Ret {
 	/* start up (open) this file store for an existing initialized backing
 	store and parse and validate the header. */
 
@@ -564,14 +563,14 @@ func (this *File_store_aligned) Startup(force bool) Ret {
 	/* return error if no good, we do not check for uninit here
 	   startup assumes it's been initted already. */
 
-	ret = this.Load_header_and_check_magic(true) // check device params passed in from cmd line or catalog
+	ret = this.load_header_and_check_magic(true) // check device params passed in from cmd line or catalog
 	if ret != nil {
 		return ret
 	}
 	// check dirty flag here and set it dirty
 	if force == false {
 		if this.m_header.M_dirty != 0 {
-			return Error(this.log, "backing store was not cleanly shut down. add -f to force starting up anyawy.")
+			return tools.Error(this.log, "backing store was not cleanly shut down. add -f to force starting up anyawy.")
 		}
 	} else {
 		if this.m_header.M_dirty != 0 {
@@ -583,19 +582,19 @@ func (this *File_store_aligned) Startup(force bool) Ret {
 		}
 	}
 	this.m_header.M_dirty = 1
-	ret = this.write_header_to_disk(false)
+	ret = this.store_header(false)
 	return ret
 }
 
-func (this *File_store_aligned) Shutdown() Ret {
+func (this *File_store_aligned) Shutdown() tools.Ret {
 	if this.m_datastore == nil {
-		return Error(this.log, "not initialized or already shut down.")
+		return tools.Error(this.log, "not initialized or already shut down.")
 	}
 
 	if this.m_readonly == false {
 		// set dirty flag clean here, since we're shutting down cleanly, but only if not open readonly
 		this.m_header.M_dirty = 0
-		var ret = this.write_header_to_disk(false)
+		var ret = this.store_header(false)
 		if ret != nil {
 			return ret
 		}
@@ -603,13 +602,13 @@ func (this *File_store_aligned) Shutdown() Ret {
 	// famously, nobody ever checks for error on close, but it's a good idea.
 	var err = this.m_datastore.Close()
 	if err != nil {
-		return Error(this.log, "Unable to close datastore: ", this.m_store_filename, " error: ", err)
+		return tools.Error(this.log, "Unable to close datastore: ", this.m_store_filename, " error: ", err)
 	}
 	this.m_datastore = nil
 	return nil
 }
 
-// func (this *File_store_aligned) read_raw_data_length(block_num uint32, length uint32) (Ret, []byte) {
+// func (this *File_store_aligned) read_raw_data_length(block_num uint32, length uint32) (tools.Ret, []byte) {
 
 // 	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we do any math on it.
 // 	 * since we only ever read one block at a time (hmmm...) we won't have to worry about there being gaps in the data */
@@ -618,7 +617,7 @@ func (this *File_store_aligned) Shutdown() Ret {
 // 	var bresp []byte = this.m_iopath.AllocBuffer(int(length)) // we offset block writes for alignment, but we only actually have to read our block size
 // 	var bytes_read, err = this.m_datastore.ReadAt(bresp, int64(offset))
 // 	if err != nil {
-// 		return Error(this.log, "Error reading from data store at position  ", offset, " length ", length,
+// 		return tools.Error(this.log, "Error reading from data store at position  ", offset, " length ", length,
 // 			" error: ", err), nil
 // 	}
 // 	/* if we had to pad the block for directio, shrink the slice to the actual size of data expected */
@@ -628,7 +627,7 @@ func (this *File_store_aligned) Shutdown() Ret {
 // 	}
 
 // 	if uint32(len(bresp)) != length {
-// 		return Error(this.log, "Error reading from data store, tried to read ", length, " bytes, only read ", bytes_read), nil
+// 		return tools.Error(this.log, "Error reading from data store, tried to read ", length, " bytes, only read ", bytes_read), nil
 // 	}
 
 // 	return nil, bresp
@@ -643,7 +642,7 @@ that doen't apply with slookup, because a data block is a whole data block and e
 at the beginning of a block, they can span, or start in the middle of a block, so again we just read whole
 blocks and slookup worries about pulling out the pieces it needs. */
 
-// func (this *File_store_aligned) Load_limit(block_num uint32, length uint32) (Ret, *[]byte) {
+// func (this *File_store_aligned) Load_limit(block_num uint32, length uint32) (tools.Ret, *[]byte) {
 // 	/* Load only length bytes from block num, not the entire block.
 // 	   must still round up to alignment though, in case of directio. */
 // 	var bresp = make([]byte, length) // in read_raw_data
@@ -654,14 +653,14 @@ blocks and slookup worries about pulling out the pieces it needs. */
 // 		return ret, nil
 // 	}
 // 	if len(bresp) != int(length) {
-// 		return Error(this.log, "Unable to read from data store block ", block_num, " length ", length,
+// 		return tools.Error(this.log, "Unable to read from data store block ", block_num, " length ", length,
 // 			", only received ", len(bresp), " bytes"), nil
 // 	}
 // 	return nil, &bresp
 
 // }
 
-func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
+func (this *File_store_aligned) Read_raw_data(block_num uint32) (tools.Ret, []byte) {
 
 	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we
 	do any math on it.  since we only ever read one block at a time (hmmm...) we won't have to worry about there
@@ -685,7 +684,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 			}
 			return nil, bresp
 		}
-		return Error(this.log, "Error reading from data store at position  ", offset, " length ", length,
+		return tools.Error(this.log, "Error reading from data store at position  ", offset, " length ", length,
 			" error: ", err), nil
 	}
 	/* if we had to pad the block for directio, shrink the slice to the actual size of data expected */
@@ -695,7 +694,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 	}
 
 	if uint32(len(bresp)) != length {
-		return Error(this.log, "Error reading from data store, tried to read ", length, " bytes, only read ", bytes_read), nil
+		return tools.Error(this.log, "Error reading from data store, tried to read ", length, " bytes, only read ", bytes_read), nil
 	}
 
 	return nil, bresp
@@ -703,7 +702,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 
 // user facing read write interface, includes file header offset
 
-func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte) {
+func (this *File_store_aligned) Load_block_data(block_num uint32) (tools.Ret, *[]byte) {
 	/* read in the data block_num and return it.
 	 * As originally designed we'd always be writing a full block and therefore
 	 * be able to read a full block always, but now we have to allow for short blocks
@@ -722,7 +721,7 @@ func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte)
 		return ret, nil
 	}
 	if len(bresp) != int(this.m_header.M_block_size) {
-		return Error(this.log, "Unable to read from data store block ", block_num, " length ", this.m_header.M_block_size,
+		return tools.Error(this.log, "Unable to read from data store block ", block_num, " length ", this.m_header.M_block_size,
 			", only received ", len(bresp), " bytes"), nil
 	}
 	return nil, &bresp
@@ -746,11 +745,11 @@ func (this *File_store_aligned) calc_absolute_offset(block_num uint32) uint64 {
 	return pos
 }
 
-func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) Ret {
+func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) tools.Ret {
 	/* 12/12/2021 all writes must write to the end of the 4k boundary so the underlying block device/filesystem
 	 * won't have to do a read update write. that's what makes this one different than the original file_store */
 	if len(*data) > int(this.m_header.M_block_size) {
-		return Error(this.log, "write_raw_data asked to write ", len(*data), " bytes but the block size is only ", this.m_header.M_block_size)
+		return tools.Error(this.log, "write_raw_data asked to write ", len(*data), " bytes but the block size is only ", this.m_header.M_block_size)
 	}
 	/* here we used to pad the data to write to the next slookup block size, now we're going to pad to 4k */
 
@@ -763,7 +762,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 	var aligned_data []byte = this.m_iopath.AllocBuffer(len(*to_write))
 	var copied = copy(aligned_data, *data)
 	if copied < len(*data) {
-		return Error(this.log, "unable to copy aligned block of data. data length: ", len(*data), " amount copied: ", copied)
+		return tools.Error(this.log, "unable to copy aligned block of data. data length: ", len(*data), " amount copied: ", copied)
 	}
 	to_write = &aligned_data
 
@@ -780,7 +779,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 	// 		 var padded_data []byte = f.m_iopath.AllocBuffer(int(f.m_alignment))
 	// 		 var copied = copy(padded_data, *data)
 	// 	if copied < len(*data) {
-	// 		return Error(f.log, "unable to copy padded block of data. data length: ", len(*data), " amount copied: ", copied)
+	// 		return tools.Error(f.log, "unable to copy padded block of data. data length: ", len(*data), " amount copied: ", copied)
 	// 	}
 	// 	to_write = &padded_data
 	// }
@@ -797,29 +796,29 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 	var written, err = this.m_datastore.WriteAt(*to_write, int64(offset))
 	// someday configure if we flush immediately.
 	if err != nil {
-		return Error(this.log, "Error writing to data store at position  ", offset, " length ", length, " error: ", err)
+		return tools.Error(this.log, "Error writing to data store at position  ", offset, " length ", length, " error: ", err)
 	}
 	if written != length {
-		return Error(this.log, "Error writing to data store, tried to write ", length, " bytes, only wrote ", written)
+		return tools.Error(this.log, "Error writing to data store, tried to write ", length, " bytes, only wrote ", written)
 	}
 	return nil
 }
 
 // user facing read write interface, includes file header offset
 
-func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte) Ret {
+func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte) tools.Ret {
 	// store and load must be less than or equal to the block size.
 	// we now allow for writing less than an entire block, and that's okay
 	// as long as we can read it back and return exactly what we were given.
 	if len(*data) > int(this.m_header.M_block_size) {
-		return Error(this.log,
+		return tools.Error(this.log,
 			"store asked to write ", len(*data), " bytes but the block size is only ", this.m_header.M_block_size)
 	}
 	// leave room for file header block
 	return this.write_raw_data(block_num+FILE_HEADER_BLOCK_OFFSET, data)
 }
 
-// func (this *File_store_aligned) set_free_position(block_num uint32) Ret {
+// func (this *File_store_aligned) set_free_position(block_num uint32) tools.Ret {
 // 	/* 12/23/2020 at this point we know where the end of the file must be
 // 	 * so we can truncate it and free up the space on disk.
 // 	 * unless it's a block device, so we don't do that if it's a block device. */
@@ -845,18 +844,18 @@ func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte)
 // 	return nil
 // }
 
-func (this *File_store_aligned) Get_total_blocks() (Ret, uint32) {
+func (this *File_store_aligned) Get_total_blocks() (tools.Ret, uint32) {
 	// the max number of blocks we can fit in the backing store
 	return nil, this.m_header.M_block_count
 
 }
 
-// func (this *File_store_aligned) Allocate(amount uint32) (Ret, []uint32) { /* allocate i blocks from free position and return an array of the positions allocated */
+// func (this *File_store_aligned) Allocate(amount uint32) (tools.Ret, []uint32) { /* allocate i blocks from free position and return an array of the positions allocated */
 // 	/* see if there's enough room to add these nodes and if so, return their
 // 	   positions in the array and up the free position accordingly */
 // 	/* if we ever go concurrent we're going to have to lock this and a lot of other things I suppose */
 // 	if this.m_header.M_free_position+amount > this.m_header.M_block_count {
-// 		return Error(this.log, "Not enough space available to allocate ", amount, " blocks."), nil
+// 		return tools.Error(this.log, "Not enough space available to allocate ", amount, " blocks."), nil
 // 	}
 // 	var lp uint32
 // 	var rvals []uint32 = make([]uint32, amount)
@@ -871,7 +870,7 @@ func (this *File_store_aligned) Get_total_blocks() (Ret, uint32) {
 // 	return nil, rvals
 // }
 
-// func (this *File_store_aligned) Deallocate() Ret {
+// func (this *File_store_aligned) Deallocate() tools.Ret {
 // 	/* you can only deallocate one node at a time, at the moment,
 // 	 *  and suffer the write hit for each one. sorry. */
 
@@ -886,7 +885,7 @@ func (this *File_store_aligned) Get_total_blocks() (Ret, uint32) {
 
 func (this *File_store_aligned) Mark_end(free_position uint32) tools.Ret {
 	if this.m_datastore == nil {
-		return Error(this.log, "Can't mark the end of the slookup file store: ", this.m_store_filename, ", filestore is shut down or not started.")
+		return tools.Error(this.log, "Can't mark the end of the slookup file store: ", this.m_store_filename, ", filestore is shut down or not started.")
 	}
 
 	var ret, is_block_device = this.is_block_device(this.m_store_filename)
@@ -899,18 +898,18 @@ func (this *File_store_aligned) Mark_end(free_position uint32) tools.Ret {
 		var newfilesize int64 = int64(free_position) * int64(this.m_header.M_block_size)
 		var err = os.Truncate(this.m_store_filename, int64(newfilesize))
 		if err != nil {
-			return Error(this.log, "unable to truncate file store", this.m_store_filename,
+			return tools.Error(this.log, "unable to truncate file store", this.m_store_filename,
 				" error: ", err.Error())
 		}
 	}
 	return nil
 }
 
-func (this *File_store_aligned) Wipe() Ret {
+func (this *File_store_aligned) Wipe() tools.Ret {
 	/* write zeros over the first block. */
 
 	if this.m_datastore == nil {
-		return Error(this.log, "Can't wipe slookup file store: ", this.m_store_filename, ", filestore is shut down or not started.")
+		return tools.Error(this.log, "Can't wipe slookup file store: ", this.m_store_filename, ", filestore is shut down or not started.")
 	}
 
 	this.log.Info("wiping slookup backing file store: ", this.m_store_filename)
@@ -918,15 +917,15 @@ func (this *File_store_aligned) Wipe() Ret {
 	var zeros = make([]byte, CHECK_START_BLANK_BYTES)
 	var ret = this.write_raw_data(0, &zeros)
 	if ret != nil {
-		return Error(this.log, "error trying to wipe: ", this.m_store_filename, " error: ", ret.Get_errmsg())
+		return tools.Error(this.log, "error trying to wipe: ", this.m_store_filename, " error: ", ret.Get_errmsg())
 	}
 	return nil
 }
 
-func (this *File_store_aligned) Dispose() Ret {
+func (this *File_store_aligned) Dispose() tools.Ret {
 	/* delete the slookup_i backing file. */
 	if this.m_datastore != nil {
-		return Error(this.log, "Can't dispose of slookup_i file store: ", this.m_store_filename, ", filestore not shut down.")
+		return tools.Error(this.log, "Can't dispose of slookup_i file store: ", this.m_store_filename, ", filestore not shut down.")
 	}
 
 	var ret, is_block_device = this.is_block_device(this.m_store_filename)
@@ -938,7 +937,7 @@ func (this *File_store_aligned) Dispose() Ret {
 		this.log.Info("deleting slookup backing file store: ", this.m_store_filename)
 		var err = os.Remove(this.m_store_filename)
 		if err != nil {
-			return Error(this.log, "error trying to delete: ", this.m_store_filename, " error: ", err)
+			return tools.Error(this.log, "error trying to delete: ", this.m_store_filename, " error: ", err)
 		}
 
 	} else {
