@@ -202,7 +202,10 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		return ret
 	}
 
-	if ret = this.m_header.Initial_load_and_verify_header(); ret != nil {
+	if ret = this.m_header.Initial_load_and_verify_header(
+		m_verify_slookup_i_addressable_blocks,
+		m_verify_slookup_i_block_group_count,
+		m_verify_slookup_i_data_block_size); ret != nil {
 		return ret
 	}
 	return nil

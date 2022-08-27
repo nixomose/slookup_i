@@ -19,6 +19,8 @@ import (
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 )
 
+const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
+
 type Slookup_i_header struct {
 	// must be capitalized or we can deserialize because it's not exported...
 	M_magic                       uint64
@@ -62,6 +64,19 @@ func (this *Slookup_i_header) serialize(log *tools.Nixomosetools_logger) (tools.
 	return nil, &bret
 }
 
+func (this *Slookup_i_header) serialized_size() uint32 {
+	return 8 + // M_magic
+		4 + // M_data_block_size
+		4 + // M_lookup_table_entry_count
+		4 + // M_lookup_table_entry_size
+		4 + // M_total_blocks
+		4 + // M_block_group_count
+		4 + // M_lookup_table_start_block
+		4 + // M_transaction_log_start_block
+		4 + // M_data_block_start_block
+		4 // M_free_position
+}
+
 func (this *Slookup_i_header) deserialize(log *tools.Nixomosetools_logger, bs *[]byte) tools.Ret {
 	/* deserialize incoming data into this object's fields.
 	interesting to note that an unused header (one that has previously not ever been written to) might
@@ -78,13 +93,13 @@ func (this *Slookup_i_header) deserialize(log *tools.Nixomosetools_logger, bs *[
 	return nil
 }
 
-func (this *Slookup_i_header) Store_header(initting bool) tools.Ret {
+func (this *Slookup_i_header) Store_header(log *tools.Nixomosetools_logger, tlog *Tlog, initting bool) tools.Ret {
 	/* everybody goes through here so we can calculate checksum */
 	// do a checksum, hash whatever of the data in the header and add it to the end.
 
 	var data *[]byte
 	var ret tools.Ret
-	ret, data = this.Serialize()(this.log)
+	ret, data = this.serialize(log)
 	if ret != nil {
 		return ret
 	}
@@ -95,47 +110,58 @@ func (this *Slookup_i_header) Store_header(initting bool) tools.Ret {
 		/* so the very first time we do this, we have to write out CHECK_START_BLANK_BYTES
 		so that the second time we come in, we can read a whole header check bytes block without
 		getting EOF */
-		var to_write = tools.Maxint(CHECK_START_BLANK_BYTES, int(this.m_initial_block_size))
+		var to_write = tools.Maxint(CHECK_START_BLANK_BYTES, int(this.M_data_block_size))
 		var pad_len = to_write - len(hashed_data)
 		for pad_len > 0 { // slow and crappy but we only ever do it once.
 			hashed_data = append(hashed_data, 0)
 			pad_len = to_write - len(hashed_data)
 		}
 	}
-	return this.write_raw_data(0, &hashed_data)
+	return tlog.Write_block(0, &hashed_data)
 }
 
-func (this *Slookup_i_header) load_header_and_check_magic(check_device_params bool) Ret {
+func (this *Slookup_i_header) Initial_load_and_verify_header(log *tools.Nixomosetools_logger, tlog *Tlog,
+	check_device_params bool,
+	m_verify_slookup_i_addressable_blocks uint32,
+	m_verify_slookup_i_block_group_count uint32,
+	m_verify_slookup_i_data_block_size uint32) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
 
+	/* now that we can read from the backing store, get the header and verify that the data_block_size in the header
+	   that defines the backing store layout, matches what the caller sent.
+		 this is only ever called once on startup so it reads from the backing
+		 store directly. the header spends its life in memory and is just written
+		 to disk as part of transactions. */
+
 	var bytes_read uint32
-	var data []byte
+	var data *[]byte
 	var ret tools.Ret
-	ret, data = this.Read_raw_data(0)
+	ret, data = tlog.Read_block(0)
 	if ret != nil {
 		return ret
 	}
 
 	// pull off the hash at the end before we do anything else
-	if len(data) < crypto.MD5.Size() {
-		return Error(this.log, "unable to read header, not enough data for checkssum, length is only ", crypto.MD5.Size)
+	if len(*data) < crypto.MD5.Size() {
+		return tools.Error(log, "unable to read slookup header, not enough data for checkssum, length is only ", len(*data),
+			" it must be at least ", crypto.MD5.Size)
 	}
-	var header_data = data[0:int(this.m_header.Serialized_size())]
-	var m5 = data[int(this.m_header.Serialized_size()) : this.m_header.Serialized_size()+uint32(crypto.MD5.Size())]
+	var header_data = (*data)[0:int(this.serialized_size())]
+	var m5 = (*data)[int(this.serialized_size()) : this.serialized_size()+uint32(crypto.MD5.Size())]
 
 	var m5check = md5.Sum(header_data)
 	if bytes.Compare(m5check[:], m5) != 0 {
-		return Error(this.log, "unable to read header, hash check failed")
+		return tools.Error(log, "unable to read slookup_i header, hash check failed")
 	}
 
-	data = header_data
-	if len(data) < int(this.m_header.Serialized_size()) {
-		return Error(this.log, "unable to read header of ", this.m_header.Serialized_size(), " got back ", bytes_read)
+	*data = header_data
+	if len(*data) < int(this.serialized_size()) {
+		return tools.Error(log, "unable to read slookup header of ", this.serialized_size(), " got back ", bytes_read)
 	}
 
-	ret = this.m_header.deserialize(this.log, &data)
+	ret = this.deserialize(log, data)
 	if ret != nil {
 		return ret
 	}
@@ -143,100 +169,46 @@ func (this *Slookup_i_header) load_header_and_check_magic(check_device_params bo
 	/* this means the header doesn't match what we expect, and we should init the backing storage,
 	I can see where this could be a dangerously bad idea, so we're just going to error out, let
 	the user deal with it. */
-	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC {
-		return Error(this.log, "magic number doesn't match in backing storage")
+	if this.M_magic != ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC {
+		return tools.Error(log, "magic number doesn't match in slookup_i header")
 	}
 
 	if check_device_params {
-		// see if they header matches what the caller specified
-		if this.m_header.M_block_size != this.m_initial_block_size {
-			return Error(this.log, "block size store cached in backing storage ", this.m_header.M_block_size,
-				" doesn't match initial block size ", this.m_initial_block_size)
+		// see if they header matches what the caller specified, not all header fields are worth checking
+
+		if this.M_lookup_table_entry_count != m_verify_slookup_i_addressable_blocks {
+			return tools.Error(log, "the recorded lookup entry count ", this.M_lookup_table_entry_count,
+				" doesn't equal the supplied addressable_block count of ", m_verify_slookup_i_addressable_blocks)
 		}
 
-		if this.m_header.M_block_count != this.m_initial_block_count {
-			return Error(this.log, "block count cached in backing storage ", this.m_header.M_block_count,
-				" doesn't match initial block count ", this.m_initial_block_count)
+		if this.M_data_block_size != m_verify_slookup_i_data_block_size {
+			return tools.Error(log, "the stored data block size ", this.M_data_block_size, " doesn't equal ",
+				"the supplied block size of ", m_verify_slookup_i_data_block_size)
 		}
 
-		if this.m_header.M_alignment != this.m_initial_file_store_block_alignment {
-			return Error(this.log, "alignment ", this.m_header.M_alignment,
-				" doesn't match initial alignment ", this.m_initial_file_store_block_alignment)
+		if this.M_block_group_count != m_verify_slookup_i_block_group_count {
+			return tools.Error(log, "the stored block group count ", this.M_block_group_count, " doesn't equal ",
+				"the supplied block group count of ", m_verify_slookup_i_block_group_count)
 		}
+
+		var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(log, 0,
+			m_verify_slookup_i_data_block_size, m_verify_slookup_i_block_group_count)
+
+		var measure_entry_serialized_size uint32 = measure_entry.Serialized_size()
+
+		if this.M_lookup_table_entry_size != measure_entry_serialized_size {
+			return tools.Error(log, "the stored entry serialized size ", this.M_lookup_table_entry_size, " doesn't equal ",
+				"the calculated entry serialized size of ", measure_entry_serialized_size)
+		}
+
+		// we could maybe also verify the positions of the start of lookup table, tlog and data blocks, but those could change and that's valid.
+
 	} else { // if we should check device fields against the header or are we just reading the header to display.
 		/* there are a few places that use the user/catalog supplied initial block size (for initial creation)
 		   and therefore is wrong if just getting storage status, so we set it to what the on-disk header says. */
-		this.m_initial_block_size = this.m_header.M_block_size
-		this.m_initial_block_count = this.m_header.M_block_count
-		this.m_initial_file_store_block_alignment = this.m_header.M_alignment
+		// this.m_initial_block_size = this.m_header.M_block_size
+		// this.m_initial_block_count = this.m_header.M_block_count
+		// this.m_initial_file_store_block_alignment = this.m_header.M_alignment
 	}
 	return nil // all is well.
-}
-
-func (this *Slookup_i_header) Initial_load_and_verify_header() tools.Ret {
-	/* now that we can read from the backing store, get the header and verify that the data_block_size in the header
-	   that defines the backing store layout, matches what the caller sent.
-		 this is only ever called once on startup so it reads from the backing
-		 store directly. the header spends its life in memory and is just written
-		 to disk as part of transactions. */
-	var data *[]byte
-	var ret tools.Ret
-	// this is about the only thing that goes after the backing store directly and doesn't go through the transaction log
-	if ret, data = this.m_storage.Load_block_data(0); ret != nil {
-		return ret
-	}
-
-	var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(this.log, 0,
-		this.m_verify_slookup_i_data_block_size, this.m_verify_slookup_i_block_group_count)
-
-	var measure_entry_serialized_size uint32 = measure_entry.Serialized_size()
-	this.m_entry_size_cache = measure_entry_serialized_size
-
-	if ret = this.m_header.Deserialize(this.log, data); ret != nil {
-		return ret
-	}
-
-	// now just compare the fields we can
-
-	if this.m_header.M_lookup_table_entry_count != this.m_verify_slookup_i_addressable_blocks {
-		return tools.Error(this.log, "the recorded lookup entry count ", this.m_header.M_lookup_table_entry_count,
-			" doesn't equal the supplied addressable_block count of ", this.m_verify_slookup_i_addressable_blocks)
-	}
-
-	if this.m_header.M_data_block_size != this.m_verify_slookup_i_data_block_size {
-		return tools.Error(this.log, "the stored data block size ", this.m_header.M_data_block_size, " doesn't equal ",
-			"the supplied block size of ", this.m_verify_slookup_i_data_block_size)
-	}
-
-	if this.m_header.M_block_group_count != this.m_verify_slookup_i_block_group_count {
-		return tools.Error(this.log, "the stored block group count ", this.m_header.M_block_group_count, " doesn't equal ",
-			"the supplied block group count of ", this.m_verify_slookup_i_block_group_count)
-	}
-
-	if this.m_header.M_lookup_table_entry_size != measure_entry_serialized_size {
-		return tools.Error(this.log, "the stored entry serialized size ", this.m_header.M_lookup_table_entry_size, " doesn't equal ",
-			"the calculated entry serialized size of ", measure_entry_serialized_size)
-	}
-
-	// we could maybe also verify the positions of the start of lookup table, tlog and data blocks, but those could change and that's valid.
-	return nil
-}
-
-func (this *Slookup_i_header) store_header() tools.Ret {
-	/* write the header to disk */
-
-	var data *[]byte
-	var ret tools.Ret
-
-	if ret, data = this.m_header.Serialize(this.log); ret != nil {
-		return ret
-	}
-
-	/* writes to the header go through the tlog so that header changes can also be
-	part of a transaction. */
-	if ret = this.Write(0, data); ret != nil {
-		return ret
-	}
-
-	return nil
 }
