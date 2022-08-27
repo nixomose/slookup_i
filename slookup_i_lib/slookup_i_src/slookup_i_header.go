@@ -17,6 +17,7 @@ import (
 
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
+	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 )
 
 const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
@@ -93,7 +94,8 @@ func (this *Slookup_i_header) deserialize(log *tools.Nixomosetools_logger, bs *[
 	return nil
 }
 
-func (this *Slookup_i_header) Store_header(log *tools.Nixomosetools_logger, tlog *Tlog, initting bool) tools.Ret {
+func (this *Slookup_i_header) Store_header(log *tools.Nixomosetools_logger,
+	tlog slookup_i_lib_interfaces.Transaction_log_interface, initting bool) tools.Ret {
 	/* everybody goes through here so we can calculate checksum */
 	// do a checksum, hash whatever of the data in the header and add it to the end.
 
@@ -120,7 +122,9 @@ func (this *Slookup_i_header) Store_header(log *tools.Nixomosetools_logger, tlog
 	return tlog.Write_block(0, &hashed_data)
 }
 
-func (this *Slookup_i_header) Initial_load_and_verify_header(log *tools.Nixomosetools_logger, tlog *Tlog,
+func (this *Slookup_i_header) Initial_load_and_verify_header(
+	log *tools.Nixomosetools_logger,
+	tlog slookup_i_lib_interfaces.Transaction_log_interface,
 	check_device_params bool,
 	m_verify_slookup_i_addressable_blocks uint32,
 	m_verify_slookup_i_block_group_count uint32,

@@ -202,10 +202,11 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		return ret
 	}
 
-	if ret = this.m_header.Initial_load_and_verify_header(
-		m_verify_slookup_i_addressable_blocks,
-		m_verify_slookup_i_block_group_count,
-		m_verify_slookup_i_data_block_size); ret != nil {
+	if ret = this.m_header.Initial_load_and_verify_header(this.log,
+		this.m_transaction_log_storage, true,
+		this.m_verify_slookup_i_addressable_blocks,
+		this.m_verify_slookup_i_block_group_count,
+		this.m_verify_slookup_i_data_block_size); ret != nil {
 		return ret
 	}
 	return nil
@@ -1225,7 +1226,7 @@ func (this *Slookup_i) deallocate() tools.Ret {
 		return ret
 	}
 
-	if ret = this.m_header.store_header(); ret != nil {
+	if ret = this.m_header.Store_header(this.log, this.m_transaction_log_storage, false); ret != nil {
 		return ret
 	}
 
