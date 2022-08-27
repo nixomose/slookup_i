@@ -170,14 +170,14 @@ func (this *File_store_aligned) Get_store_information() (Ret, string) {
 	m["dirty"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_dirty))
 
 	//_this is just informational, we don't need to know this, it gets calculated when we read/write offsets
-	m["number_of_physical_bytes_used_for_a_block"] = tools.Prettylargenumber_uint64(this.calc_offset(1))
+	m["number_of_physical_bytes_used_for_a_block"] = tools.Prettylargenumber_uint64(this.calc_absolute_offset(1))
 
 	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
-	m["total_bytes_used_in_backing_store_with_alignment"] = tools.Prettylargenumber_uint64(uint64(this.calc_offset(1)) *
+	m["total_bytes_used_in_backing_store_with_alignment"] = tools.Prettylargenumber_uint64(uint64(this.calc_absolute_offset(1)) *
 		(uint64(this.m_header.M_block_count) + uint64(FILE_HEADER_BLOCK_OFFSET)))
 
 	/*_While_we're_here_we_can work out how much space is being wasted by alignment. why not. */
-	var waste_per_block = this.calc_offset(1) - uint64(this.m_header.M_block_size)
+	var waste_per_block = this.calc_absolute_offset(1) - uint64(this.m_header.M_block_size)
 	m["wasted_bytes_per_block"] = tools.Prettylargenumber_uint64(waste_per_block)
 	var total_waste = waste_per_block * uint64(this.m_header.M_block_count)
 	m["total_bytes_wasted_due_to_alignment_padding"] = tools.Prettylargenumber_uint64(total_waste)
@@ -226,14 +226,14 @@ func (this *File_store_aligned) Init() Ret {
 
 	this.log.Debug("physical store block alignment: ", tools.Prettylargenumber_uint64(uint64(this.m_header.M_alignment)))
 	// this is just informational, we don't need to know this, it gets calculated when we read/write offsets
-	this.log.Debug("number of physical bytes used for a block: ", tools.Prettylargenumber_uint64(this.calc_offset(1)))
+	this.log.Debug("number of physical bytes used for a block: ", tools.Prettylargenumber_uint64(this.calc_absolute_offset(1)))
 
 	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
-	this.log.Debug("total bytes used in backing store with alignment", tools.Prettylargenumber_uint64(uint64(this.calc_offset(1))*
+	this.log.Debug("total bytes used in backing store with alignment", tools.Prettylargenumber_uint64(uint64(this.calc_absolute_offset(1))*
 		(uint64(this.m_header.M_block_count)+uint64(FILE_HEADER_BLOCK_OFFSET))))
 
 	/* While we're here we can work out how much space is being wasted by alignment. why not. */
-	var waste_per_block = this.calc_offset(1) - uint64(this.m_header.M_block_size)
+	var waste_per_block = this.calc_absolute_offset(1) - uint64(this.m_header.M_block_size)
 	this.log.Debug("wasted bytes per block: ", tools.Prettylargenumber_uint64(waste_per_block))
 	var total_waste = waste_per_block * uint64(this.m_header.M_block_count)
 	this.log.Debug("total bytes wasted due to alignment padding: ", tools.Prettylargenumber_uint64(total_waste))
@@ -614,7 +614,7 @@ func (this *File_store_aligned) read_raw_data_length(block_num uint32, length ui
 	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we do any math on it.
 	 * since we only ever read one block at a time (hmmm...) we won't have to worry about there being gaps in the data */
 
-	var offset uint64 = this.calc_offset(block_num)
+	var offset uint64 = this.calc_user_offset(block_num)
 	var bresp []byte = this.m_iopath.AllocBuffer(int(length)) // we offset block writes for alignment, but we only actually have to read our block size
 	var bytes_read, err = this.m_datastore.ReadAt(bresp, int64(offset))
 	if err != nil {
@@ -667,7 +667,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 	do any math on it.  since we only ever read one block at a time (hmmm...) we won't have to worry about there
 	being gaps in the data */
 
-	var offset uint64 = this.calc_offset(block_num)
+	var offset uint64 = this.calc_user_offset(block_num)
 	var length uint32 = this.m_initial_block_size             // this has to be initial_block size for the read of the header to see if the header matches
 	var bresp []byte = this.m_iopath.AllocBuffer(int(length)) // we offset block writes for alignment, but we only actually have to read our block size
 	var bytes_read, err = this.m_datastore.ReadAt(bresp, int64(offset))
@@ -701,6 +701,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 	return nil, bresp
 }
 
+// user facing read write interface, includes file header offset
 func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte) {
 	/* read in the data block_num and return it.
 	 * As originally designed we'd always be writing a full block and therefore
@@ -712,7 +713,6 @@ func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte)
 	  8/27/2022 this is where the file header block offset starts to matter. This is the
 		user entry point to reading the backing store, so while they may be asking for block 0
 		we're going to actually get them block 1. */
-	xxxxxxxxxxxxxxxxz
 	var bresp []byte
 	var ret tools.Ret
 	ret, bresp = this.Read_raw_data(block_num + FILE_HEADER_BLOCK_OFFSET)
@@ -727,8 +727,15 @@ func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte)
 	return nil, &bresp
 }
 
-func (this *File_store_aligned) calc_offset(block_num uint32) uint64 {
-	/* calculate the byte position offset of this block pos taking into account file_store_block_alignment */
+func (this *File_store_aligned) calc_user_offset(block_num uint32) uint64 {
+	/* calculate the absoluste byte position offset of this block pos taking into account file_store_block_alignment
+	and the file header block */
+
+	return this.calc_absolute_offset(block_num + FILE_HEADER_BLOCK_OFFSET)
+}
+
+func (this *File_store_aligned) calc_absolute_offset(block_num uint32) uint64 {
+	/* calculate the absolute byte position offset of this block pos taking into account file_store_block_alignment */
 	// we should just store this rather than recalculating it all the time. xxxz
 	var alignedcount uint64 = uint64(this.m_initial_block_size) / uint64(this.m_initial_file_store_block_alignment)
 	if this.m_initial_block_size%this.m_initial_file_store_block_alignment != 0 {
@@ -784,7 +791,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 		 be divisible by the directio alignment. but this allows you to align to larger than 4k blocks. If you're not
 		 using directio, you can make it a prime number for all I care. */
 
-	var offset uint64 = this.calc_offset(block_num)
+	var offset uint64 = this.calc_user_offset(block_num)
 	var length = len(*to_write)
 	var written, err = this.m_datastore.WriteAt(*to_write, int64(offset))
 	// someday configure if we flush immediately.
@@ -797,6 +804,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) R
 	return nil
 }
 
+// user facing read write interface, includes file header offset
 func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte) Ret {
 	// store and load must be less than or equal to the block size.
 	// we now allow for writing less than an entire block, and that's okay
@@ -805,48 +813,35 @@ func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte)
 		return Error(this.log,
 			"store asked to write ", len(*data), " bytes but the block size is only ", this.m_header.M_block_size)
 	}
-	return this.write_raw_data(block_num, data)
+	// leave room for file header block
+	return this.write_raw_data(block_num+FILE_HEADER_BLOCK_OFFSET, data)
 }
 
-func (this *File_store_aligned) Get_root_node() (Ret, uint32) {
-	return nil, this.m_header.M_root_node
-}
+// func (this *File_store_aligned) set_free_position(block_num uint32) Ret {
+// 	/* 12/23/2020 at this point we know where the end of the file must be
+// 	 * so we can truncate it and free up the space on disk.
+// 	 * unless it's a block device, so we don't do that if it's a block device. */
+// 	var shrinking bool = false
+// 	if block_num < this.m_header.M_free_position {
+// 		shrinking = true
+// 	}
+// 	this.m_header.M_free_position = block_num
 
-func (this *File_store_aligned) Set_root_node(block_num uint32) Ret {
+// 	var ret = this.write_header_to_disk(false)
 
-	this.m_header.M_root_node = block_num
-	return this.write_header_to_disk(false)
-}
+// 	if ret != nil {
+// 		return ret
+// 	}
+// 	if shrinking == false {
+// 		return nil
+// 	}
+// 	// xxxz store value of is-block-device and check it here.
+// 	// now size the file appropriately, if it fails, no big deal, it's a block device. maybe work that out up front and we avoid running the error case on every shrink
+// 	var newfilesize int64 = int64(block_num) * int64(this.m_header.M_block_size)
+// 	os.Truncate(this.m_store_filename, int64(newfilesize))
 
-func (this *File_store_aligned) Get_free_position() (Ret, uint32) {
-	return nil, this.m_header.M_free_position
-}
-
-func (this *File_store_aligned) set_free_position(block_num uint32) Ret {
-	/* 12/23/2020 at this point we know where the end of the file must be
-	 * so we can truncate it and free up the space on disk.
-	 * unless it's a block device, so we don't do that if it's a block device. */
-	var shrinking bool = false
-	if block_num < this.m_header.M_free_position {
-		shrinking = true
-	}
-	this.m_header.M_free_position = block_num
-
-	var ret = this.write_header_to_disk(false)
-
-	if ret != nil {
-		return ret
-	}
-	if shrinking == false {
-		return nil
-	}
-	// xxxz store value of is-block-device and check it here.
-	// now size the file appropriately, if it fails, no big deal, it's a block device. maybe work that out up front and we avoid running the error case on every shrink
-	var newfilesize int64 = int64(block_num) * int64(this.m_header.M_block_size)
-	os.Truncate(this.m_store_filename, int64(newfilesize))
-
-	return nil
-}
+// 	return nil
+// }
 
 func (this *File_store_aligned) Get_total_blocks() (Ret, uint32) {
 	// the max number of blocks we can fit in the backing store
@@ -854,33 +849,38 @@ func (this *File_store_aligned) Get_total_blocks() (Ret, uint32) {
 
 }
 
-func (this *File_store_aligned) Allocate(amount uint32) (Ret, []uint32) { /* allocate i blocks from free position and return an array of the positions allocated */
-	/* see if there's enough room to add these nodes and if so, return their
-	   positions in the array and up the free position accordingly */
-	/* if we ever go concurrent we're going to have to lock this and a lot of other things I suppose */
-	if this.m_header.M_free_position+amount > this.m_header.M_block_count {
-		return Error(this.log, "Not enough space available to allocate ", amount, " blocks."), nil
-	}
-	var lp uint32
-	var rvals []uint32 = make([]uint32, amount)
-	for lp = 0; lp < amount; lp++ {
-		rvals[lp] = this.m_header.M_free_position
-		this.m_header.M_free_position++
-	}
-	var ret = this.set_free_position(this.m_header.M_free_position)
-	if ret != nil {
-		return ret, nil
-	}
-	return nil, rvals
+// func (this *File_store_aligned) Allocate(amount uint32) (Ret, []uint32) { /* allocate i blocks from free position and return an array of the positions allocated */
+// 	/* see if there's enough room to add these nodes and if so, return their
+// 	   positions in the array and up the free position accordingly */
+// 	/* if we ever go concurrent we're going to have to lock this and a lot of other things I suppose */
+// 	if this.m_header.M_free_position+amount > this.m_header.M_block_count {
+// 		return Error(this.log, "Not enough space available to allocate ", amount, " blocks."), nil
+// 	}
+// 	var lp uint32
+// 	var rvals []uint32 = make([]uint32, amount)
+// 	for lp = 0; lp < amount; lp++ {
+// 		rvals[lp] = this.m_header.M_free_position
+// 		this.m_header.M_free_position++
+// 	}
+// 	var ret = this.set_free_position(this.m_header.M_free_position)
+// 	if ret != nil {
+// 		return ret, nil
+// 	}
+// 	return nil, rvals
+// }
 
-}
+// func (this *File_store_aligned) Deallocate() Ret {
+// 	/* you can only deallocate one node at a time, at the moment,
+// 	 *  and suffer the write hit for each one. sorry. */
 
-func (this *File_store_aligned) Deallocate() Ret {
-	/* you can only deallocate one node at a time, at the moment,
-	 *  and suffer the write hit for each one. sorry. */
-	return this.set_free_position(this.m_header.M_free_position - 1)
+// var ret, is_block_device = this.is_block_device(this.m_store_filename)
+// if ret != nil {
+// 	return ret
+// }
+// if is_block_device == false {}
 
-}
+// 	return this.set_free_position(this.m_header.M_free_position - 1)
+// }
 
 func (this *File_store_aligned) Wipe() Ret {
 	/* write zeros over the first block. */
@@ -900,9 +900,9 @@ func (this *File_store_aligned) Wipe() Ret {
 }
 
 func (this *File_store_aligned) Dispose() Ret {
-	/* delete the stree file. */
+	/* delete the slookup_i backing file. */
 	if this.m_datastore != nil {
-		return Error(this.log, "Can't dispose of stree file store: ", this.m_store_filename, ", filestore not shut down.")
+		return Error(this.log, "Can't dispose of slookup_i file store: ", this.m_store_filename, ", filestore not shut down.")
 	}
 
 	var ret, is_block_device = this.is_block_device(this.m_store_filename)

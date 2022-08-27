@@ -54,9 +54,10 @@ type Slookup_i_backing_store_interface interface {
 
 	Get_total_blocks() (tools.Ret, uint32) // total blocks that can fit in this backing storage
 
-	Allocate(amount uint32) (tools.Ret, []uint32)
+	// there is no allocate and deallocate, there is only read and write, and the backing store either works or it doesn't.
+	// Allocate(amount uint32) (tools.Ret, []uint32)
 
-	Deallocate() tools.Ret
+	// Deallocate() tools.Ret
 
 	Wipe() tools.Ret // zero out the first block so as to make it inittable again
 
