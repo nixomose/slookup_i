@@ -59,6 +59,11 @@ type Slookup_i_backing_store_interface interface {
 
 	// Deallocate() tools.Ret
 
+	/* we don't have allocate or deallocate in the backing store anymore, so
+	we have this in place of deallocated to give the backing store the opportunity
+	to free up the space at the end if it wants (ie file not block device) */
+	Mark_end(free_position uint32) tools.Ret
+
 	Wipe() tools.Ret // zero out the first block so as to make it inittable again
 
 	Dispose() tools.Ret
