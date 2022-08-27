@@ -24,7 +24,7 @@ a block_group is all the data_blocks that comprise a set of mother+offspring dat
 There is also a reverse lookup table buried in the main lookup table, so that it is possible to find
 the lookup table entry that contains a given data block position. */
 
-// package name must match directory name
+// Package slookup_i_src name must match directory name
 package slookup_i_src
 
 import (
@@ -38,6 +38,7 @@ import (
 )
 
 // this is the block that the lookup table starts at, block 0 is the header.
+
 const LOOKUP_TABLE_START_BLOCK uint32 = 10             // make some room in case we need it some day.
 const TRANSACTION_LOG_START_PADDING_BLOCKS uint32 = 10 // more room, this is the number of blocks after the lookup table before the transaction log starts
 const DATA_BLOCKS_START_PADDING_BLOCKS uint32 = 10     // what a horrible name for this., this is the number of blocks after the transaction log, before the data blocks start.
