@@ -31,7 +31,7 @@ which is where the slookup_i header will go. There will be redundant information
 and we're wasting two blocks, but separation of concerns and all that, you can use an slookup_i
 without a backing file store and it won't need this file store header, yada yada. */
 
-const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
+const ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC uint64 = 0x5a454e4fxxxxxxxx53534c31 // ZENOSFS1  zendemic object store FILE STORE 1
 const CHECK_START_BLANK_BYTES int = 4096
 const SLOOKUP_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
@@ -205,7 +205,7 @@ func (this *File_store_aligned) Init() tools.Ret {
 
 	/* Clear out the dataset file and write new blank metadata. */
 	this.log.Debug("initting file backing storage: " + this.m_store_filename)
-	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC
+	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC
 	this.m_header.M_block_size = this.m_initial_block_size
 	this.log.Debug("inital block size in bytes: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)))
 
@@ -435,7 +435,8 @@ func (this *File_store_aligned) load_header_and_check_magic(check_device_params 
 
 	// pull off the hash at the end before we do anything else
 	if len(data) < crypto.MD5.Size() {
-		return tools.Error(this.log, "unable to read header, not enough data for checkssum, length is only ", crypto.MD5.Size)
+		return tools.Error(this.log, "unable to read header, not enough data for checkssum, length is only ", len(data),
+			" it must be at least ", crypto.MD5.Size)
 	}
 	var header_data = data[0:int(this.m_header.Serialized_size())]
 	var m5 = data[int(this.m_header.Serialized_size()) : this.m_header.Serialized_size()+uint32(crypto.MD5.Size())]
@@ -458,7 +459,7 @@ func (this *File_store_aligned) load_header_and_check_magic(check_device_params 
 	/* this means the header doesn't match what we expect, and we should init the backing storage,
 	I can see where this could be a dangerously bad idea, so we're just going to error out, let
 	the user deal with it. */
-	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC {
+	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC {
 		return tools.Error(this.log, "magic number doesn't match in backing storage")
 	}
 
