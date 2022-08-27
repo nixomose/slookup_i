@@ -38,6 +38,9 @@ const STREE_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
 const S_IFMT uint32 = 00170000
 
+// all user requests get offset by this amount in the actual backing store because we make room for the file header.
+const FILE_HEADER_BLOCK_OFFSET uint32 = 1
+
 type File_store_aligned struct {
 	log *Nixomosetools_logger
 
@@ -156,11 +159,11 @@ func (this *File_store_aligned) Get_store_information() (Ret, string) {
 	m["number_of_blocks_available_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count))
 	m["total_storable_bytes"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count) * uint64(this.m_header.M_block_size))
 
-	m["blocks_used_for_header"] = tools.Prettylargenumber_uint64(1)
+	m["blocks_used_for_header"] = tools.Prettylargenumber_uint64(uint64(FILE_HEADER_BLOCK_OFFSET))
 
-	m["total_blocks_used_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count) + 1)
+	m["total_blocks_used_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count) + uint64(FILE_HEADER_BLOCK_OFFSET))
 	m["total_bytes_used_in_backing_store"] = tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size) *
-		(uint64(this.m_header.M_block_count) + 1))
+		(uint64(this.m_header.M_block_count) + uint64(FILE_HEADER_BLOCK_OFFSET)))
 	// which isn't true because it doesn't take alignment padding into account
 
 	m["physical_store_block_alignment"] = tools.Prettylargenumber_uint64(uint64(this.m_header.M_alignment))
@@ -171,7 +174,7 @@ func (this *File_store_aligned) Get_store_information() (Ret, string) {
 
 	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
 	m["total_bytes_used_in_backing_store_with_alignment"] = tools.Prettylargenumber_uint64(uint64(this.calc_offset(1)) *
-		(uint64(this.m_header.M_block_count) + 1))
+		(uint64(this.m_header.M_block_count) + uint64(FILE_HEADER_BLOCK_OFFSET)))
 
 	/*_While_we're_here_we_can work out how much space is being wasted by alignment. why not. */
 	var waste_per_block = this.calc_offset(1) - uint64(this.m_header.M_block_size)
@@ -213,11 +216,12 @@ func (this *File_store_aligned) Init() Ret {
 	this.m_header.M_alignment = this.m_initial_file_store_block_alignment
 	this.m_header.M_dirty = 1
 
-	this.log.Debug("blocks used for header", tools.Prettylargenumber_uint64(1))
+	this.log.Debug("blocks used for header", tools.Prettylargenumber_uint64(uint64(FILE_HEADER_BLOCK_OFFSET)))
 
-	this.log.Debug("total blocks used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count)+1))
+	this.log.Debug("total blocks used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count)+
+		uint64(FILE_HEADER_BLOCK_OFFSET)))
 	this.log.Debug("total bytes used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)*
-		(uint64(this.m_header.M_block_count)+1)))
+		(uint64(this.m_header.M_block_count)+uint64(FILE_HEADER_BLOCK_OFFSET))))
 	// which isn't true because it doesn't take alignment padding into account
 
 	this.log.Debug("physical store block alignment: ", tools.Prettylargenumber_uint64(uint64(this.m_header.M_alignment)))
@@ -226,7 +230,7 @@ func (this *File_store_aligned) Init() Ret {
 
 	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
 	this.log.Debug("total bytes used in backing store with alignment", tools.Prettylargenumber_uint64(uint64(this.calc_offset(1))*
-		(uint64(this.m_header.M_block_count)+1)))
+		(uint64(this.m_header.M_block_count)+uint64(FILE_HEADER_BLOCK_OFFSET))))
 
 	/* While we're here we can work out how much space is being wasted by alignment. why not. */
 	var waste_per_block = this.calc_offset(1) - uint64(this.m_header.M_block_size)
@@ -251,7 +255,6 @@ func (this *File_store_aligned) Init() Ret {
 
 	return this.write_header_to_disk(true)
 }
-xxxxxxxxxxxxxxxz got up to here.
 
 func (this *File_store_aligned) write_header_to_disk(initting bool) Ret {
 	/* everybody goes through here so we can calculate checksum */
@@ -267,7 +270,7 @@ func (this *File_store_aligned) write_header_to_disk(initting bool) Ret {
 	var hashed_data = append(*data, m5[:]...)
 
 	if initting {
-		/* so the very first time we do this, we have to write out  CHECK_START_BLANK_BYTES
+		/* so the very first time we do this, we have to write out CHECK_START_BLANK_BYTES
 		so that the second time we come in, we can read a whole header check bytes block without
 		getting EOF */
 		var to_write = tools.Maxint(CHECK_START_BLANK_BYTES, int(this.m_initial_block_size))
@@ -277,7 +280,6 @@ func (this *File_store_aligned) write_header_to_disk(initting bool) Ret {
 			pad_len = to_write - len(hashed_data)
 		}
 	}
-
 	return this.write_raw_data(0, &hashed_data)
 }
 
@@ -302,7 +304,6 @@ func (this *File_store_aligned) is_block_device(path string) (Ret, bool) {
 	}
 
 	/* if it's a block device, it might be a symlink, follow first. */
-
 	var realpath, err = filepath.EvalSymlinks(path)
 	if err != nil {
 		return Error(this.log, "can't resolve symlinl: ", path, " error: ", err), false
@@ -320,7 +321,11 @@ func (this *File_store_aligned) is_block_device(path string) (Ret, bool) {
 	return nil, false
 }
 
-func (this *File_store_aligned) get_size_of_path(path string) (Ret, uint64) {
+func (this *File_store_aligned) Get_size_of_path(path string) (Ret, uint64) {
+	/* find out how much space is available at the specified path or on the specified block device.
+	   slookup_i doesn't use this to determine anything, because it is driven entirely by the caller's
+		 specifications, but they can use this to determine what's available */
+
 	var r, is_block = this.is_block_device(path)
 	if r != nil {
 		return r, 0
@@ -356,28 +361,25 @@ func (this *File_store_aligned) get_size_of_path(path string) (Ret, uint64) {
 		return Error(this.log, "Unable to stat: ", path, " error: ", err), 0
 	}
 	var total = stat.Blocks * uint64(stat.Bsize)
-	// now take 80% of each because we don't really want to fill the entire disk, unless we're a block device
-	total = total * USABLE_SPACE_PERCENTAGE / 100
-
-	return nil, total
-}
-
-func (this *File_store_aligned) Get_usable_storage_bytes(path string) (Ret, uint64) {
-	/* 1/8/2021 using the disk size as the total from which to take 80%
-	 * doesn't work too well. instead let's try free space and then we
-	 * can take 80% of that,
-	long total = localdiskstorage.getTotalSpace(); // size in bytes */
-	// long total = localdiskstorage.getFreeSpace(); // size in bytes
-	// okay that doesn't work either. so let's go with 80% of total disk space, block devices will work differently.
 	//xxxz this doesn't work for loop devices.
-
-	var ret, total = this.get_size_of_path(path)
-	if ret != nil {
-		return ret, 0
-	}
-
 	return nil, total
 }
+
+// func (this *File_store_aligned) Get_usable_storage_bytes(path string) (Ret, uint64) {
+// 	/* 1/8/2021 using the disk size as the total from which to take 80%
+// 	 * doesn't work too well. instead let's try free space and then we
+// 	 * can take 80% of that,
+// 	long total = localdiskstorage.getTotalSpace(); // size in bytes */
+// 	// long total = localdiskstorage.getFreeSpace(); // size in bytes
+// 	// okay that doesn't work either. so let's go with 80% of total disk space, block devices will work differently.
+
+// 	var ret, total = this.get_size_of_path(path)
+// 	if ret != nil {
+// 		return ret, 0
+// 	}
+
+// 	return nil, total
+// }
 
 func (this *File_store_aligned) Is_backing_store_uninitialized() (Ret, bool) {
 	/* Read the first 4k and see if it's all zeroes. */
@@ -424,14 +426,9 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
 
-	// first thing we have to do is get the disk size to validate against because nobody but us and init does that.
-	var ret = this.calculate_usable_storage()
-	if ret != nil {
-		return ret
-	}
-
 	var bytes_read uint32
 	var data []byte
+	var ret tools.Ret
 	ret, data = this.Read_raw_data(0)
 	if ret != nil {
 		return ret
@@ -439,7 +436,7 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 
 	// pull off the hash at the end before we do anything else
 	if len(data) < crypto.MD5.Size() {
-		return Error(this.log, "unable to read header, not enough data for checsum, length is only ", crypto.MD5.Size)
+		return Error(this.log, "unable to read header, not enough data for checkssum, length is only ", crypto.MD5.Size)
 	}
 	var header_data = data[0:int(this.m_header.Serialized_size())]
 	var m5 = data[int(this.m_header.Serialized_size()) : this.m_header.Serialized_size()+uint32(crypto.MD5.Size())]
@@ -462,7 +459,7 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 	/* this means the header doesn't match what we expect, and we should init the backing storage,
 	I can see where this could be a dangerously bad idea, so we're just going to error out, let
 	the user deal with it. */
-	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_slookup_i_MAGIC_5k {
+	if this.m_header.M_magic != ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC {
 		return Error(this.log, "magic number doesn't match in backing storage")
 	}
 
@@ -473,19 +470,9 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 				" doesn't match initial block size ", this.m_initial_block_size)
 		}
 
-		if this.m_header.M_store_size_in_bytes != this.m_initial_store_size_in_bytes {
-			return Error(this.log, "store size in bytes cached in backing storage ", this.m_header.M_store_size_in_bytes,
-				" doesn't match initial store size in bytes ", this.m_initial_store_size_in_bytes)
-		}
-
-		if this.m_header.M_nodes_per_block != this.m_initial_nodes_per_block {
-			return Error(this.log, "nodes per block cached in backing storage ", this.m_header.M_nodes_per_block,
-				" doesn't match initial nodes per block ", this.m_initial_nodes_per_block)
-		}
-
-		if uint64(this.m_header.M_block_count)*uint64(this.m_header.M_block_size) > this.m_header.M_store_size_in_bytes {
-			return Error(this.log, "block count ", this.m_header.M_block_count, " times block_size ", this.m_header.M_block_size,
-				" is greater than backing storage stored size ", this.m_header.M_store_size_in_bytes)
+		if this.m_header.M_block_count != this.m_initial_block_count {
+			return Error(this.log, "block count cached in backing storage ", this.m_header.M_block_count,
+				" doesn't match initial block count ", this.m_initial_block_count)
 		}
 
 		if this.m_header.M_alignment != this.m_initial_file_store_block_alignment {
@@ -494,13 +481,10 @@ func (this *File_store_aligned) Load_header_and_check_magic(check_device_params 
 		}
 	} else { // if we should check device fields against the header or are we just reading the header to display.
 		/* there are a few places that use the user/catalog supplied initial block size (for initial creation)
-		   and therefore is wrong if just getting storage status, so we set it to what the on-disk header says.
-		   can you see how hacky this is getting already? We should fix this. the on-disk should be authoritative always
-		   and the initial setup should be made to work despite that. */
+		   and therefore is wrong if just getting storage status, so we set it to what the on-disk header says. */
 		this.m_initial_block_size = this.m_header.M_block_size
+		this.m_initial_block_count = this.m_header.M_block_count
 		this.m_initial_file_store_block_alignment = this.m_header.M_alignment
-		this.m_initial_store_size_in_bytes = this.m_header.M_store_size_in_bytes
-		this.m_initial_nodes_per_block = this.m_header.M_nodes_per_block
 	}
 	return nil // all is well.
 }
@@ -523,10 +507,6 @@ func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 	if this.m_datastore != nil {
 		return Error(this.log, "physical store already opened")
 	}
-	// var ret = this.calculate_usable_storage()
-	// if ret != nil {
-	// 	return ret
-	// }
 
 	/* so this is interesting. this is called for getting status and verifying the uninitializedness or not
 	   of a backing store. The problem is the difference between an uninitialized backing store file
@@ -558,11 +538,6 @@ func (this *File_store_aligned) Open_datastore() tools.Ret {
 		return Error(this.log, "physical store already opened")
 	}
 
-	// var ret = this.calculate_usable_storage()
-	// if ret != nil {
-	// 	return ret
-	// }
-
 	var flags = os.O_RDWR
 	if this.m_sync {
 		flags |= os.O_SYNC // same as syscall.O_SYNC
@@ -581,19 +556,10 @@ func (this *File_store_aligned) Startup(force bool) Ret {
 	/* start up (open) this file store for an existing initialized backing
 	store and parse and validate the header. */
 
-	if this.m_datastore != nil {
-		return Error(this.log, "file store has already been initialized.")
-	}
-
 	var ret = this.Open_datastore()
 	if ret != nil {
 		return ret
 	}
-
-	/* 12/12/2021 we used to just make a new stree header if it was wrong, but this could be dangerous
-	 * if we point it to a block device. so now we will only allow creating an stree if the first 4k
-	 * of the device is all zeroes, thus there's no other filesystem or anything else there.
-	 * Error in all other cases. */
 
 	/* return error if no good, we do not check for uninit here
 	   startup assumes it's been initted already. */
@@ -609,7 +575,9 @@ func (this *File_store_aligned) Startup(force bool) Ret {
 		}
 	} else {
 		if this.m_header.M_dirty != 0 {
-			this.log.Info("backing store was not cleanly shut down, forcing startup anyway, data may be corrupt.")
+			/* with the transaction log, we shouldn't be able to corrupt data anymore, but we should at least mention
+			   that there could be problems. */
+			this.log.Info("backing store was not cleanly shut down, forcing startup anyway, any existing transaction log will be run.")
 		} else {
 			this.log.Info("backing store is clean but force flag was passed unneccesarily.")
 		}
@@ -666,28 +634,38 @@ func (this *File_store_aligned) read_raw_data_length(block_num uint32, length ui
 	return nil, bresp
 }
 
-func (this *File_store_aligned) Load_limit(block_num uint32, length uint32) (Ret, *[]byte) {
-	/* Load only length bytes from block num, not the entire block.
-	   must still round up to alignment though, in case of directio. */
-	var bresp = make([]byte, length) // in read_raw_data
-	var ret tools.Ret
-	ret, bresp = this.read_raw_data_length(block_num, length)
+/* file backing store only does blocks now (even if they're not aligned blocks.) we used to let the stree layer
+ask the file store to load parts of a block, but that wasn't a good idea in retrospect. it is now slookup_i's problem
+to read a whole block and read out just the part of the block that has the entry they want.
+the other difference is that we used to use load limit because stree wanted to read the first part of a node so it
+could get the metadata to search without having to load in the whole block and read all the data that it didn't need.
+that doen't apply with slookup, because a data block is a whole data block and entries don't neccesarily start
+at the beginning of a block, they can span, or start in the middle of a block, so again we just read whole
+blocks and slookup worries about pulling out the pieces it needs. */
 
-	if ret != nil {
-		return ret, nil
-	}
-	if len(bresp) != int(length) {
-		return Error(this.log, "Unable to read from data store block ", block_num, " length ", length,
-			", only received ", len(bresp), " bytes"), nil
-	}
-	return nil, &bresp
+// func (this *File_store_aligned) Load_limit(block_num uint32, length uint32) (Ret, *[]byte) {
+// 	/* Load only length bytes from block num, not the entire block.
+// 	   must still round up to alignment though, in case of directio. */
+// 	var bresp = make([]byte, length) // in read_raw_data
+// 	var ret tools.Ret
+// 	ret, bresp = this.read_raw_data_length(block_num, length)
 
-}
+// 	if ret != nil {
+// 		return ret, nil
+// 	}
+// 	if len(bresp) != int(length) {
+// 		return Error(this.log, "Unable to read from data store block ", block_num, " length ", length,
+// 			", only received ", len(bresp), " bytes"), nil
+// 	}
+// 	return nil, &bresp
+
+// }
 
 func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 
-	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we do any math on it.
-	 * since we only ever read one block at a time (hmmm...) we won't have to worry about there being gaps in the data */
+	/* 12/12/2021 the way we pad out to alignment is by making the block size round up to the alignment size before we
+	do any math on it.  since we only ever read one block at a time (hmmm...) we won't have to worry about there
+	being gaps in the data */
 
 	var offset uint64 = this.calc_offset(block_num)
 	var length uint32 = this.m_initial_block_size             // this has to be initial_block size for the read of the header to see if the header matches
@@ -724,16 +702,20 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (Ret, []byte) {
 }
 
 func (this *File_store_aligned) Load_block_data(block_num uint32) (Ret, *[]byte) {
-	/* read in a node at this block_num and return it.
+	/* read in the data block_num and return it.
 	 * As originally designed we'd always be writing a full block and therefore
 	 * be able to read a full block always, but now we have to allow for short blocks
 	 * as compressed data will not fill out the block. And if the last block written is
 	 * short, the amount we read will come up short.
 	 * So the better way to go to ensure correctness is not to allow short reads
-	 * but to pad out to the block size when writing. so we'll do that in store() */
+	 * but to pad out to the block size when writing. so we'll do that in store()
+	  8/27/2022 this is where the file header block offset starts to matter. This is the
+		user entry point to reading the backing store, so while they may be asking for block 0
+		we're going to actually get them block 1. */
+	xxxxxxxxxxxxxxxxz
 	var bresp []byte
 	var ret tools.Ret
-	ret, bresp = this.Read_raw_data(block_num)
+	ret, bresp = this.Read_raw_data(block_num + FILE_HEADER_BLOCK_OFFSET)
 
 	if ret != nil {
 		return ret, nil
