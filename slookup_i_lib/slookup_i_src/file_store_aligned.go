@@ -31,13 +31,14 @@ which is where the slookup_i header will go. There will be redundant information
 and we're wasting two blocks, but separation of concerns and all that, you can use an slookup_i
 without a backing file store and it won't need this file store header, yada yada. */
 
-const ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC uint64 = 0x5a454e4fxxxxxxxx53534c31 // ZENOSFS1  zendemic object store FILE STORE 1
+const ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC uint64 = 0x5a454e4f53465331 // ZENOSFS1  zendemic object store FILE STORE 1
 const CHECK_START_BLANK_BYTES int = 4096
 const SLOOKUP_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
 const S_IFMT uint32 = 00170000
 
 // all user requests get offset by this amount in the actual backing store because we make room for the file header.
+
 const FILE_HEADER_BLOCK_OFFSET uint32 = 1
 
 type File_store_aligned struct {
