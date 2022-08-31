@@ -38,29 +38,32 @@ func main() {
 		// 	testfile, false, false, 0, VALUE_LENGTH, 0, 0, false, "", false, false)
 
 		var iopath slookup_i_src.File_store_io_path = slookup_i_src.New_file_store_io_path_default()
+		var alignment uint32 = 0
 
 		/* so the backing physical store for the stree is the block device or file passed... */
-		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log,
-			testfile, uint32(stree_calculated_node_size), uint32(stree_calculated_node_size),
-			additional_nodes_per_block, iopath)
+		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
+			data_block_size, addressable_blocks, alignment, iopath)
 
-		var stree *slookup_i_lib.slookup_i = slookup_i_lib.New_slookup_i(log, fstore, KEY_LENGTH, VALUE_LENGTH,
-			additional_nodes_per_block, stree_calculated_node_size, "", []byte(""))
+		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
+			addressable_blocks, block_group_count, data_block_size, total_blocks)
 
-		ret = stree.Init()
+		// init the backing store
+		var ret = slookup.Init()
 		if ret != nil {
 			return
 		}
 
-		ret = stree.Shutdown()
+		ret = slookup.Shutdown()
 		if ret != nil {
 			return
 		}
-	}
-	var fstore *slookup_i_lib.File_store_aligned = slookup_i_lib.New_File_store_aligned(log, testfile,
-		stree_calculated_node_size, stree_calculated_node_size, additional_nodes_per_block, iopath)
+	} // end init scope
 
-	ret = fstore.Open_datastore()
+	// now make one we can test with.
+	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
+		data_block_size, addressable_blocks, alignment, iopath)
+
+	var ret = fstore.Open_datastore()
 	if ret != nil {
 		return
 	}
