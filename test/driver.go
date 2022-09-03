@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/nixomose/nixomosegotools/tools"
+	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 	"github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_src"
 )
 
@@ -44,11 +45,17 @@ func main() {
 		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
 			data_block_size, addressable_blocks, alignment, iopath)
 
+		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+		var ret tools.Ret
+		if ret = tlog.Init(); ret != nil {
+			return
+		}
+
 		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
 			addressable_blocks, block_group_count, data_block_size, total_blocks)
 
 		// init the backing store
-		var ret = slookup.Init()
+		ret = slookup.Init()
 		if ret != nil {
 			return
 		}
@@ -59,6 +66,7 @@ func main() {
 		}
 	} // end init scope
 
+	var alignment uint32 = 0
 	// now make one we can test with.
 	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
 		data_block_size, addressable_blocks, alignment, iopath)
@@ -72,18 +80,19 @@ func main() {
 	if ret != nil {
 		return
 	}
-	// we did this above
-	// ret = fstore.Init()
-	// if ret != nil {
-	// 	return
-	// }
+
 	// stree has to be unstarted for test to run
 	ret = fstore.Shutdown()
 	if ret != nil {
 		return
 	}
 
-	test_4k(log, fstore)
+	var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+	if ret = tlog.Startup(false); ret != nil {
+		return
+	}
+
+	test_4k(log, tlog, fstore)
 
 	var mstore *slookup_i_lib.Memory_store = slookup_i_lib.New_memory_store(log)
 	mstore.Init()
@@ -117,8 +126,7 @@ func get_init_params() (data_block_size uint32, block_group_count uint32, addres
 	return
 }
 
-func test_4k(log *tools.Nixomosetools_logger, store slookup_i_lib.Slookup_i_backing_store_interface,
-	tlog slookup_i_lib.Transaction_log_interface) {
+func test_4k(log *tools.Nixomosetools_logger, tlog slookup_i_lib.Transaction_log_interface, store slookup_i_lib.Slookup_i_backing_store_interface) {
 
 	var data_block_size uint32
 	var block_group_count uint32

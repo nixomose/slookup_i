@@ -421,7 +421,7 @@ func (this *File_store_aligned) Is_backing_store_uninitialized() (tools.Ret, boo
 	return nil, true
 }
 
-func (this *File_store_aligned) load_header_and_check_magic(check_device_params bool) tools.Ret {
+func (this *File_store_aligned) Load_header_and_check_magic(check_device_params bool) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
