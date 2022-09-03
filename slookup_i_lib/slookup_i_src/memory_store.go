@@ -5,7 +5,7 @@ package slookup_i_src
 
 import (
 	"github.com/nixomose/nixomosegotools/tools"
-	stree_v_lib "github.com/nixomose/stree_v/stree_v_lib/stree_v_interfaces"
+	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 )
 
 type Memory_store struct {
@@ -22,8 +22,8 @@ type Memory_store struct {
 }
 
 // verify that memory_store implements backing_store
-var _ stree_v_lib.Stree_v_backing_store_interface = &Memory_store{}
-var _ stree_v_lib.Stree_v_backing_store_interface = (*Memory_store)(nil)
+var _ slookup_i_lib.Slookup_i_backing_store_interface = &Memory_store{}
+var _ slookup_i_lib.Slookup_i_backing_store_interface = (*Memory_store)(nil)
 
 func New_memory_store(l *tools.Nixomosetools_logger) *Memory_store {
 	var store Memory_store
@@ -32,19 +32,19 @@ func New_memory_store(l *tools.Nixomosetools_logger) *Memory_store {
 	return &store
 }
 
-func (this *Memory_store) Load_limit(pos uint32, len uint32) (tools.Ret, *[]byte) {
-	/* for testing, it's helpful to have this actually work the way the file one does.
-	it's easy to just call node.Load, but we need to simulate the real thing by not
-	including the data. */
-	var ret, data = this.Load(pos)
-	if ret != nil {
-		return ret, nil
-	}
-	var limit_data = (*data)[0:len]
-	return nil, &limit_data
-}
+// func (this *Memory_store) Load_limit(pos uint32, len uint32) (tools.Ret, *[]byte) {
+// 	/* for testing, it's helpful to have this actually work the way the file one does.
+// 	it's easy to just call node.Load, but we need to simulate the real thing by not
+// 	including the data. */
+// 	var ret, data = this.Load(pos)
+// 	if ret != nil {
+// 		return ret, nil
+// 	}
+// 	var limit_data = (*data)[0:len]
+// 	return nil, &limit_data
+// }
 
-func (this *Memory_store) Load(pos uint32) (tools.Ret, *[]byte) {
+func (this *Memory_store) Load_block_data(pos uint32) (tools.Ret, *[]byte) {
 	var val, ok = this.storage[pos]
 	if ok == false {
 		var r = make([]byte, 4096)
@@ -59,7 +59,7 @@ func (this *Memory_store) Load(pos uint32) (tools.Ret, *[]byte) {
 	return nil, &val
 }
 
-func (this *Memory_store) Store(pos uint32, data *[]byte) tools.Ret {
+func (this *Memory_store) Store_block_data(pos uint32, data *[]byte) tools.Ret {
 	this.storage[pos] = *data
 	if pos == 1 {
 		this.log.Debug("storing block: ", pos, " with ", len(*data), " bytes of data")
@@ -139,23 +139,27 @@ func (this *Memory_store) Get_total_blocks() (tools.Ret, uint32) {
 	return nil, ret
 }
 
-func (this *Memory_store) Allocate(amount uint32) (tools.Ret, []uint32) { /* allocate i blocks from free position and return an array of the positions allocated */
-	var lp uint32
-	var rvals []uint32 = make([]uint32, amount)
-	for lp = 0; lp < amount; lp++ {
-		rvals[lp] = this.free_position
-		this.free_position++
-	}
-	this.log.Debug("allocating ", amount, " blocks, new free position is: ", this.free_position)
-	return nil, rvals
-}
+// func (this *Memory_store) Allocate(amount uint32) (tools.Ret, []uint32) { /* allocate i blocks from free position and return an array of the positions allocated */
+// 	var lp uint32
+// 	var rvals []uint32 = make([]uint32, amount)
+// 	for lp = 0; lp < amount; lp++ {
+// 		rvals[lp] = this.free_position
+// 		this.free_position++
+// 	}
+// 	this.log.Debug("allocating ", amount, " blocks, new free position is: ", this.free_position)
+// 	return nil, rvals
+// }
 
-func (this *Memory_store) Deallocate() tools.Ret {
-	this.log.Debug("deallocating one block...")
+// func (this *Memory_store) Deallocate() tools.Ret {
+// 	this.log.Debug("deallocating one block...")
 
-	this.Set_free_position(this.free_position - 1)
-	// clear the map entry
-	delete(this.storage, this.free_position) // xxxz check this
+// 	this.Set_free_position(this.free_position - 1)
+// 	// clear the map entry
+// 	delete(this.storage, this.free_position) // xxxz check this
+// 	return nil
+// }
+
+func (this *Memory_store) Mark_end(free_position uint32) tools.Ret {
 	return nil
 }
 
