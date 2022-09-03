@@ -246,7 +246,7 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 			return
 		}
 		//var _ = n //
-		fmt.Print("[" + tools.Uint32tostring(lp) + "] " + e.Dump())
+		fmt.Print("[" + tools.Uint32tostring(lp) + "] " + e.Dump(false))
 	}
 	fmt.Println()
 	fmt.Println("first data postion: ", first_data_position, " free position: ", free_position)
@@ -2028,30 +2028,29 @@ func (this *Slookup_i) Get_total_data_blocks() uint32 {
 	return total_data
 }
 
-// func (this *Slookup_i) Diag_dump(printtree bool) {
-// 	/* load all active nodes and print out their contents */
+func (this *Slookup_i) Diag_dump(entry *slookup_i_lib_entry.Slookup_i_entry) {
+	/* dump this entry and value */
 
-// 	var root_node = this.Get_root_node()
-// 	fmt.Println("root node: ", root_node)
-// 	var ret, iresp = this.Get_free_position()
-// 	if ret != nil {
-// 		fmt.Println(ret)
-// 		return
-// 	}
-// 	var free_position uint32 = iresp
+	fmt.Println("entry: ", entry.Dump(false))
+	var ret, iresp = this.Get_free_position()
+	if ret != nil {
+		fmt.Println(ret)
+		return
+	}
+	var free_position uint32 = iresp
 
-// 	var lp uint32
-// 	for lp = 1; lp < free_position; lp++ {
-// 		fmt.Println("---------------------")
-// 		this.diag_dump_one(lp)
-// 	}
+	var lp uint32
+	for lp = 1; lp < free_position; lp++ {
+		fmt.Println("---------------------")
+		this.diag_dump_one(lp)
+	}
 
-// 	if printtree {
-// 		var tp Treeprinter_iii
-// 		tp.PrintNode(this, this.Get_root_node())
-// 	}
+	if printtree {
+		var tp Treeprinter_iii
+		tp.PrintNode(this, this.Get_root_node())
+	}
 
-// }
+}
 
 // func (this *Slookup_i) diag_dump_one(lp uint32) {
 

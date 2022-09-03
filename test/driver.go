@@ -94,10 +94,10 @@ func main() {
 
 	test_4k(log, tlog, fstore)
 
-	var mstore *slookup_i_lib.Memory_store = slookup_i_lib.New_memory_store(log)
+	var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
 	mstore.Init()
 
-	test_4k(log, mstore)
+	test_4k(log, tlog, mstore)
 
 	test_basics()
 

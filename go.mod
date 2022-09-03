@@ -13,11 +13,7 @@ module github.com/nixomose/slookup_i
 go 1.18
 
 require (
+	github.com/ncw/directio v1.0.5
 	github.com/nixomose/nixomosegotools v0.0.0-20220601021307-4fef638de118
-	github.com/nixomose/stree_v v0.0.0-20220609015355-6910180c06ab
-)
-
-require (
-	github.com/ncw/directio v1.0.5 // indirect
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
+	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a
 )

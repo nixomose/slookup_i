@@ -121,7 +121,7 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_valu
 	return &n
 }
 
-func (this *Slookup_i_entry) Dump() string {
+func (this *Slookup_i_entry) Dump(with_value bool) string {
 	var str = "entry pos: " + tools.Uint32tostring(this.entry_pos) + ", block_group_count: " +
 		tools.Uint32tostring(this.block_group_count) +
 		", block_group_list: ["
@@ -139,6 +139,10 @@ func (this *Slookup_i_entry) Dump() string {
 			str += " "
 		}
 		str += tools.Uint32tostring(n)
+	}
+	str += " value length: " + tools.Uint32tostring(this.Get_value_length())
+	if with_value {
+		str += tools.Dump(*this.Get_value())
 	}
 	return str
 }
