@@ -24,6 +24,16 @@ a block_group is all the data_blocks that comprise a set of mother+offspring dat
 There is also a reverse lookup table buried in the main lookup table, so that it is possible to find
 the lookup table entry that contains a given data block position. */
 
+/* 9/3/2022 I spent a long time thinking about if slookup_i should even have direct access to the backing store.
+all reads and writes go through tlog, but there are a few manage-the-backing-store that could be added to tlog
+that just passes through to the backing store, but it's one of those things where we're making a worse design just
+so we can have a pretty interface and things like wipe, discard, and mark_end would exist only as passthrough
+functions in tlog, which breaks the function-that-does-nothing-but-call-a-function rule for the sake of not having
+slookup_i control both the tlog and the backing store.
+So I say we do it the right way: do what needs to be done that makes sense, not what is pretty.
+therefore slookup inits the tlog and inits the backing store separately. tlog is not responsible for initting
+the backing store. that's not its job, it's a transaction log, not a backing store manager. */
+
 // Package slookup_i_src name must match directory name
 package slookup_i_src
 
@@ -233,8 +243,7 @@ func (this *Slookup_i) Print(log *tools.Nixomosetools_logger) {
 		fmt.Println(ret.Get_errmsg())
 		return
 	}
-	var first_data_position uint32
-	first_data_position = this.Get_first_data_block_start_block()
+	var first_data_position uint32 = this.Get_first_data_block_start_block()
 
 	// the number of allocated blocks
 	var allocated_blocks uint32 = free_position - first_data_position
@@ -514,8 +523,7 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 			" which is before the first data block location: ", first_data_block_position)
 	}
 
-	var last_possible_data_block_position uint32
-	last_possible_data_block_position = this.Get_total_blocks()
+	var last_possible_data_block_position uint32 = this.Get_total_blocks()
 
 	if data_block_num >= last_possible_data_block_position { // check for off by one here.
 		return tools.Error(this.log, "sanity failure, somebody is trying to operate on a data_block position: ", data_block_num,
@@ -797,10 +805,9 @@ func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_sto
 	   which means whoever calls this must have everything written to disk because we may pick up and rewrite any
 	   entry. the reverse lookup can be anywhere. */
 
-	var reverse_lookup_entry_num uint32 // used as block_num to find the entry
-
+	// used as block_num to find the entry
 	// we store block_group_count number of reverse lookup array entries in each entry.
-	reverse_lookup_entry_num = data_block / this.Get_block_group_count()
+	var reverse_lookup_entry_num uint32 = data_block / this.Get_block_group_count()
 	// the position in the entry
 	var reverse_lookup_entry_pos uint32 = data_block % this.Get_block_group_count()
 
@@ -827,10 +834,9 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 	the block_group array index and the value in it.
 	actually don't return that last bit, duh, that's the value they passed us. */
 
-	var reverse_lookup_entry_num uint32 // used as block_num to find the entry
-
+	// used as block_num to find the entry
 	// we store block_group_count number of reverse lookup array entries in each entry.
-	reverse_lookup_entry_num = data_block / this.Get_block_group_count()
+	var reverse_lookup_entry_num uint32 = data_block / this.Get_block_group_count()
 	// the position in the entry
 	var reverse_lookup_entry_pos uint32 = data_block % this.Get_block_group_count()
 
@@ -1240,6 +1246,7 @@ func (this *Slookup_i) deallocate() tools.Ret {
 }
 
 // this is a main entrypoint for zosbd2_slookup_i backing_store
+
 func (this *Slookup_i) Write(block_num uint32, new_value *[]byte) tools.Ret {
 	/* this function will write a block. */
 	this.interface_lock.Lock()
@@ -1267,6 +1274,7 @@ func (this *Slookup_i) write_internal(block_num uint32, new_value *[]byte) tools
 }
 
 /* this is a main zosbd2 entry point. fetch a block */
+
 func (this *Slookup_i) Read(block_num uint32) (Ret tools.Ret, resp *[]byte) {
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
@@ -2032,23 +2040,6 @@ func (this *Slookup_i) Diag_dump(entry *slookup_i_lib_entry.Slookup_i_entry) {
 	/* dump this entry and value */
 
 	fmt.Println("entry: ", entry.Dump(false))
-	var ret, iresp = this.Get_free_position()
-	if ret != nil {
-		fmt.Println(ret)
-		return
-	}
-	var free_position uint32 = iresp
-
-	var lp uint32
-	for lp = 1; lp < free_position; lp++ {
-		fmt.Println("---------------------")
-		this.diag_dump_one(lp)
-	}
-
-	if printtree {
-		var tp Treeprinter_iii
-		tp.PrintNode(this, this.Get_root_node())
-	}
 
 }
 

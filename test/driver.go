@@ -71,15 +71,12 @@ func main() {
 	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
 		data_block_size, addressable_blocks, alignment, iopath)
 
-	var ret = fstore.Open_datastore()
+	var ret = fstore.Startup(false)
 	if ret != nil {
 		return
 	}
 
-	ret = fstore.Load_header_and_check_magic(true) // check device params passed in from cmd line or catalog
-	if ret != nil {
-		return
-	}
+	// fstore startup calls load header.
 
 	// stree has to be unstarted for test to run
 	ret = fstore.Shutdown()
