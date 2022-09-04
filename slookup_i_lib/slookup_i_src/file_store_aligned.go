@@ -248,7 +248,7 @@ func (this *File_store_aligned) Init() tools.Ret {
 	}
 	this.log.Info(json)
 
-	ret = this.Open_datastore() // caller of init closes this.
+	ret = this.open_datastore() // caller of init closes this.
 	if ret != nil {
 		return ret
 	}
@@ -421,7 +421,7 @@ func (this *File_store_aligned) Is_backing_store_uninitialized() (tools.Ret, boo
 	return nil, true
 }
 
-func (this *File_store_aligned) Load_header_and_check_magic(check_device_params bool) tools.Ret {
+func (this *File_store_aligned) load_header_and_check_magic(check_device_params bool) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
@@ -534,7 +534,8 @@ func (this *File_store_aligned) Open_datastore_readonly() tools.Ret {
 	return nil
 }
 
-func (this *File_store_aligned) Open_datastore() tools.Ret {
+// you shouldn't call this, you should call startup unless you have a special need
+func (this *File_store_aligned) open_datastore() tools.Ret {
 	if this.m_datastore != nil {
 		return tools.Error(this.log, "physical store already opened")
 	}
@@ -557,7 +558,7 @@ func (this *File_store_aligned) Startup(force bool) tools.Ret {
 	/* start up (open) this file store for an existing initialized backing
 	store and parse and validate the header. */
 
-	var ret = this.Open_datastore()
+	var ret = this.open_datastore()
 	if ret != nil {
 		return ret
 	}
