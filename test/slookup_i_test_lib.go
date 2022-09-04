@@ -78,8 +78,7 @@ func binstringstart(start int) []byte {
 	return out
 }
 
-func (this *slookup_i_test_lib) slookup_4k_tests(s *slookup_i_src.Slookup_i,
-	VALUE_LENGTH uint32) tools.Ret {
+func (this *slookup_i_test_lib) Slookup_4k_tests(s *slookup_i_src.Slookup_i) tools.Ret {
 
 	//	/ var m map[uint64][]byte = make(map[uint64][]byte)
 	for i := 0; i < 10000; i++ {

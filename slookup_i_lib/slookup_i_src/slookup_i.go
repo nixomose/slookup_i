@@ -165,6 +165,11 @@ func (this *Slookup_i) Init() tools.Ret {
 	if ret != nil {
 		return ret
 	}
+
+	if ret = this.m_transaction_log_storage.Init(); ret != nil {
+		return ret
+	}
+
 	return this.zero_out_lookup_table()
 }
 

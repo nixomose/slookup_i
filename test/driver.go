@@ -17,7 +17,8 @@ func main() {
 
 	// you can also use the file store, but the problems tend to be in slookup_i not in the physical storage.
 
-	var iopath = slookup_i_src.New_file_store_io_path_default()
+	var iopath slookup_i_src.File_store_io_path = slookup_i_src.New_file_store_io_path_default()
+	var alignment uint32 = 0
 
 	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
 
@@ -35,26 +36,17 @@ func main() {
 
 	{ // init the filestore header make it ready to go
 
-		// var device = lib.New_block_device("testdevice", 1024*1024*1024,
-		// 	testfile, false, false, 0, VALUE_LENGTH, 0, 0, false, "", false, false)
-
-		var iopath slookup_i_src.File_store_io_path = slookup_i_src.New_file_store_io_path_default()
-		var alignment uint32 = 0
-
-		/* so the backing physical store for the stree is the block device or file passed... */
+		/* so the backing physical store for the slookup is the block device or file passed... */
 		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
 			data_block_size, addressable_blocks, alignment, iopath)
 
 		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
 		var ret tools.Ret
-		if ret = tlog.Init(); ret != nil {
-			return
-		}
 
 		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
 			addressable_blocks, block_group_count, data_block_size, total_blocks)
 
-		// init the backing store
+		// init the backing store and tlog and slookup header
 		ret = slookup.Init()
 		if ret != nil {
 			return
@@ -66,33 +58,23 @@ func main() {
 		}
 	} // end init scope
 
-	var alignment uint32 = 0
-	// now make one we can test with.
-	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
-		data_block_size, addressable_blocks, alignment, iopath)
+	{
 
-	var ret = fstore.Startup(false)
-	if ret != nil {
-		return
+		test_4k(log, testfile, iopath, alignment)
+
+		if ret = slookup_i.Shutdown(); ret != nil {
+			return ret
+		} // this also shuts down the tlog and the  backing store
+
 	}
+	// test everything again with a memory store.
 
-	// fstore startup calls load header.
-
-	// stree has to be unstarted for test to run
-	ret = fstore.Shutdown()
-	if ret != nil {
-		return
-	}
-
+	var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
+	mstore.Init()
 	var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
 	if ret = tlog.Startup(false); ret != nil {
 		return
 	}
-
-	test_4k(log, tlog, fstore)
-
-	var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
-	mstore.Init()
 
 	test_4k(log, tlog, mstore)
 
@@ -123,25 +105,34 @@ func get_init_params() (data_block_size uint32, block_group_count uint32, addres
 	return
 }
 
-func test_4k(log *tools.Nixomosetools_logger, tlog slookup_i_lib.Transaction_log_interface, store slookup_i_lib.Slookup_i_backing_store_interface) {
+func test_4k(log *tools.Nixomosetools_logger, testfile string, iopath *slookup_i_src.File_store_io_path, alignment uint32) {
 
+	var ret tools.Ret
 	var data_block_size uint32
 	var block_group_count uint32
 	var addressable_blocks uint32
 	var total_blocks uint32
 	data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
 
-	var slookup_i *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, store, tlog, addressable_blocks,
+	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
+		data_block_size, addressable_blocks, alignment, *iopath)
+
+	var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+	if ret = tlog.Startup(false); ret != nil {
+		return
+	}
+
+	var slookup_i *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog, addressable_blocks,
 		block_group_count, data_block_size, total_blocks)
 
-	var ret = slookup_i.Startup(false)
+	ret = slookup_i.Startup(false)
 	if ret != nil {
-		tools.Error(log, "Unable to create stree: ", ret.Get_errmsg())
+		tools.Error(log, "Unable to create slookup: ", ret.Get_errmsg())
 		return
 	}
 
 	var lib slookup_i_test_lib = New_slookup_i_test_lib(log)
-	lib.Stree_4k_tests(slookup_i, KEY_LENGTH, VALUE_LENGTH)
+	lib.Slookup_4k_tests(slookup_i)
 	slookup_i.Shutdown()
 
 }
@@ -206,7 +197,7 @@ func test_tree_and_offspring() {
 	}
 
 	var lib slookup_i_test_lib = New_slookup_i_test_lib(log)
-	lib.Stree_test_offspring(slookup_i, KEY_LENGTH, VALUE_LENGTH, additional_nodes_per_block)
+	lib.slookup_test_offspring(slookup_i, KEY_LENGTH, VALUE_LENGTH, additional_nodes_per_block)
 	slookup_i.Shutdown()
 }
 
@@ -237,6 +228,6 @@ func test_tree_alone() {
 
 	var lib slookup_i_test_lib = New_slookup_i_test_lib(log)
 
-	lib.Stree_test_run(slookup_i, KEY_LENGTH, VALUE_LENGTH)
+	lib.slookup_test_run(slookup_i, KEY_LENGTH, VALUE_LENGTH)
 	slookup_i.Shutdown()
 }
