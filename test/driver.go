@@ -13,6 +13,8 @@ import (
 
 func main() {
 
+	test_basics()
+
 	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
 	// you can also use the file store, but the problems tend to be in slookup_i not in the physical storage.
@@ -41,8 +43,8 @@ func main() {
 			data_block_size, addressable_blocks, alignment, iopath)
 
 		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
-		var ret tools.Ret
 
+		var ret tools.Ret
 		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
 			addressable_blocks, block_group_count, data_block_size, total_blocks)
 
@@ -60,28 +62,25 @@ func main() {
 
 	{
 
-		test_4k(log, testfile, iopath, alignment)
+		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
+			data_block_size, addressable_blocks, alignment, iopath)
 
-		if ret = slookup_i.Shutdown(); ret != nil {
-			return ret
-		} // this also shuts down the tlog and the  backing store
+		test_4k(log, fstore, &iopath, alignment)
 
 	}
-	// test everything again with a memory store.
 
-	var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
-	mstore.Init()
-	var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
-	if ret = tlog.Startup(false); ret != nil {
-		return
+	{
+		// test everything again with a memory store.
+		var ret tools.Ret
+		var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
+		mstore.Init()
+		var tlog = slookup_i_src.New_Tlog(log, mstore, data_block_size, total_blocks)
+		if ret = tlog.Startup(false); ret != nil {
+			return
+		}
+
+		test_4k(log, mstore, &iopath, alignment)
 	}
-
-	test_4k(log, tlog, mstore)
-
-	test_basics()
-
-	test_tree_alone()
-	test_tree_and_offspring()
 
 }
 
@@ -105,7 +104,8 @@ func get_init_params() (data_block_size uint32, block_group_count uint32, addres
 	return
 }
 
-func test_4k(log *tools.Nixomosetools_logger, testfile string, iopath *slookup_i_src.File_store_io_path, alignment uint32) {
+func test_4k(log *tools.Nixomosetools_logger, fmstore slookup_i_lib.Slookup_i_backing_store_interface,
+	iopath *slookup_i_src.File_store_io_path, alignment uint32) {
 
 	var ret tools.Ret
 	var data_block_size uint32
@@ -114,15 +114,12 @@ func test_4k(log *tools.Nixomosetools_logger, testfile string, iopath *slookup_i
 	var total_blocks uint32
 	data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
 
-	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
-		data_block_size, addressable_blocks, alignment, *iopath)
-
-	var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+	var tlog = slookup_i_src.New_Tlog(log, fmstore, data_block_size, total_blocks)
 	if ret = tlog.Startup(false); ret != nil {
 		return
 	}
 
-	var slookup_i *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog, addressable_blocks,
+	var slookup_i *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fmstore, tlog, addressable_blocks,
 		block_group_count, data_block_size, total_blocks)
 
 	ret = slookup_i.Startup(false)
@@ -139,6 +136,7 @@ func test_4k(log *tools.Nixomosetools_logger, testfile string, iopath *slookup_i
 
 func test_basics() {
 
+	var ret tools.Ret
 	var loggertest *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
 	loggertest.Set_level(tools.INFO)
@@ -150,84 +148,22 @@ func test_basics() {
 	loggertest.Set_level(tools.DEBUG)
 
 	// you can also use the file store, but the problems tend to be in slookup_i not in the physical storage.
-	var mstore *slookup_i_lib.Memory_store = slookup_i_lib.New_memory_store(loggertest)
+	var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(loggertest)
+	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
+	var tlog = slookup_i_src.New_Tlog(loggertest, mstore, data_block_size, total_blocks)
 
-	var max_key_len uint32 = 20
-	var max_value_len uint32 = 40
-	var additional_nodes_per_block uint32 = 0 // you always get one node, this is how many ADDITIONAL nodes you want.
+	var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(loggertest, mstore, tlog,
+		addressable_blocks, block_group_count, data_block_size, total_blocks)
 
-	var ret, block_size = slookup_i_lib.Calculate_block_size(loggertest, "key", []byte("value"), max_key_len, max_value_len, additional_nodes_per_block)
-
-	var slookup_i *slookup_i_lib.slookup_i = slookup_i_lib.New_slookup_i(loggertest, mstore, max_key_len,
-		max_value_len, additional_nodes_per_block, block_size, "sameple_key", []byte("sample_value"))
-
-	ret = slookup_i.Startup(false)
+	ret = slookup.Startup(false)
 	if ret != nil {
 		tools.Error(loggertest, "Unable to create block storage: ", ret.Get_errmsg())
 		return
 	}
-
-}
-
-func test_tree_and_offspring() {
-
-	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
-
-	var KEY_LENGTH uint32 = 2
-	var VALUE_LENGTH uint32 = 4 // this is how much data you can store in one node
-
-	var additional_nodes_per_block uint32 = 0 // you always get one node, this is how many ADDITIONAL nodes you want.
-	additional_nodes_per_block = 4            // this is how many nodes there are in one block referred to by a single key minus one, because you always get one.
-	var mstore *slookup_i_lib.Memory_store = slookup_i_lib.New_memory_store(log)
-
-	// this is the key they offspring nodes will get by default.
-
-	var key_type string = ("--")
-	var value_type []byte = []byte("****")
-
-	var ret, block_size = slookup_i_lib.Calculate_block_size(log, key_type, value_type, KEY_LENGTH, VALUE_LENGTH, additional_nodes_per_block)
-
-	var slookup_i *slookup_i_lib.slookup_i = slookup_i_lib.New_slookup_i(log, mstore, KEY_LENGTH,
-		VALUE_LENGTH, additional_nodes_per_block, block_size, key_type, value_type)
-
-	ret = slookup_i.Startup(false)
+	ret = slookup.Shutdown()
 	if ret != nil {
-		tools.Error(log, "Unable to create block storage: ", ret.Get_errmsg())
+		tools.Error(loggertest, "Unable to shut down block storage: ", ret.Get_errmsg())
 		return
 	}
 
-	var lib slookup_i_test_lib = New_slookup_i_test_lib(log)
-	lib.slookup_test_offspring(slookup_i, KEY_LENGTH, VALUE_LENGTH, additional_nodes_per_block)
-	slookup_i.Shutdown()
-}
-
-func test_tree_alone() {
-
-	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
-
-	var KEY_LENGTH uint32 = 2
-	var VALUE_LENGTH uint32 = 4 // this is how much data you can store in one node
-
-	var additional_nodes_per_block uint32 = 0 // you always get one node, this is how many ADDITIONAL nodes you want.
-	additional_nodes_per_block = 4            // this is how many nodes there are in one block referred to by a single key minus one, because you always get one.
-	var mstore *slookup_i_lib.Memory_store = slookup_i_lib.New_memory_store(log)
-
-	var key_type string = ("defkey")
-	var value_type []byte = []byte("defvalue")
-
-	var ret, block_size = slookup_i_lib.Calculate_block_size(log, key_type, value_type, KEY_LENGTH, VALUE_LENGTH, additional_nodes_per_block)
-
-	var slookup_i *slookup_i_lib.slookup_i = slookup_i_lib.New_slookup_i(log, mstore, KEY_LENGTH,
-		VALUE_LENGTH, additional_nodes_per_block, block_size, key_type, value_type)
-
-	ret = slookup_i.Startup(false)
-	if ret != nil {
-		tools.Error(log, "Unable to create block storage: ", ret.Get_errmsg())
-		return
-	}
-
-	var lib slookup_i_test_lib = New_slookup_i_test_lib(log)
-
-	lib.slookup_test_run(slookup_i, KEY_LENGTH, VALUE_LENGTH)
-	slookup_i.Shutdown()
 }
