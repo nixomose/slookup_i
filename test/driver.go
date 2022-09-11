@@ -105,7 +105,17 @@ func get_init_params() (data_block_size uint32, block_group_count uint32, addres
 }
 
 func test_4k(log *tools.Nixomosetools_logger, fmstore slookup_i_lib.Slookup_i_backing_store_interface,
-	iopath *slookup_i_src.File_store_io_path, alignment uint32) {
+	iopath *slookup_i_src.File_store_io_path, alignment uint32) tools.Ret {
+	var ret = test_4k_functions(log, fmstore, iopath, alignment)
+	if ret != nil {
+		return ret
+	}
+
+	return nil
+}
+
+func test_4k_functions(log *tools.Nixomosetools_logger, fmstore slookup_i_lib.Slookup_i_backing_store_interface,
+	iopath *slookup_i_src.File_store_io_path, alignment uint32) tools.Ret {
 
 	var ret tools.Ret
 	var data_block_size uint32
@@ -116,7 +126,7 @@ func test_4k(log *tools.Nixomosetools_logger, fmstore slookup_i_lib.Slookup_i_ba
 
 	var tlog = slookup_i_src.New_Tlog(log, fmstore, data_block_size, total_blocks)
 	if ret = tlog.Startup(false); ret != nil {
-		return
+		return ret
 	}
 
 	var slookup_i *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fmstore, tlog, addressable_blocks,
@@ -125,13 +135,19 @@ func test_4k(log *tools.Nixomosetools_logger, fmstore slookup_i_lib.Slookup_i_ba
 	ret = slookup_i.Startup(false)
 	if ret != nil {
 		tools.Error(log, "Unable to create slookup: ", ret.Get_errmsg())
-		return
+		return ret
 	}
 
 	var lib slookup_i_test_lib = New_slookup_i_test_lib(log)
-	lib.Slookup_4k_tests(slookup_i)
-	slookup_i.Shutdown()
+	if ret = lib.Slookup_4k_tests(slookup_i); ret != nil {
+		return ret
+	}
+	if ret = lib.Slookup_test_writing_zero(slookup_i); ret != nil {
+		return ret
+	}
 
+	slookup_i.Shutdown()
+	return nil
 }
 
 func test_basics() {

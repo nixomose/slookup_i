@@ -2048,6 +2048,16 @@ func (this *Slookup_i) Diag_dump(entry *slookup_i_lib_entry.Slookup_i_entry) {
 
 }
 
+func (this *Slookup_i) Diag_dump_block(block_num uint32) {
+
+	var ret tools.Ret
+	var entry *slookup_i_lib_entry.Slookup_i_entry
+	ret, entry = this.Lookup_entry_load(block_num)
+	if ret == nil {
+		this.Diag_dump(entry)
+	}
+}
+
 // func (this *Slookup_i) diag_dump_one(lp uint32) {
 
 // 	var ret, nresp = this.Node_load(lp)

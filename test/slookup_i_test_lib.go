@@ -130,52 +130,52 @@ func (this *slookup_i_test_lib) Slookup_4k_tests(s *slookup_i_src.Slookup_i) too
 	var data19 []byte = padto4k(binstringstart(19))
 	var data20 []byte = padto4k(binstringstart(20))
 
-	var k0 = rand.Uint64() % 100
-	var k1 = rand.Uint64() % 100
-	var k2 = rand.Uint64() % 100
-	var k3 = rand.Uint64() % 100
-	var k4 = rand.Uint64() % 100
+	var k0 = rand.Uint32() % 100
+	var k1 = rand.Uint32() % 100
+	var k2 = rand.Uint32() % 100
+	var k3 = rand.Uint32() % 100
+	var k4 = rand.Uint32() % 100
 
 	this.log.Debug("\n\ninserting data ", k0)
-	s.Update_or_insert(Key_from_block_num(k0), data0)
-	s.Diag_dump(false)
+	s.Write(k0, &data0)
+	s.Diag_dump_block(k0)
 
 	this.log.Debug("\n\ninserting data ", k1)
-	s.Update_or_insert(Key_from_block_num(k1), data1)
-	s.Diag_dump(false)
+	s.Write(k1, &data1)
+	s.Diag_dump_block(k1)
 
 	this.log.Debug("\n\ninserting data ", k2)
-	s.Update_or_insert(Key_from_block_num(k2), data2)
-	s.Diag_dump(false)
+	s.Write(k2, &data2)
+	s.Diag_dump_block(k2)
 
 	this.log.Debug("\n\ninserting data ", k3)
-	s.Update_or_insert(Key_from_block_num(k3), data3)
-	s.Diag_dump(false)
+	s.Write(k3, &data3)
+	s.Diag_dump_block(k3)
 
 	this.log.Debug("\n\ninserting data ", k4)
-	s.Update_or_insert(Key_from_block_num(k4), data4)
-	s.Diag_dump(true)
+	s.Write(k4, &data4)
+	s.Diag_dump_block(k4)
 
 	this.log.Debug("\n\nupdating data0 with data16")
-	s.Update_or_insert(Key_from_block_num(k0), data16)
-	s.Diag_dump(true)
+	s.Write(k0, &data16)
+	s.Diag_dump_block(k0)
 
 	this.log.Debug("\n\nupdating data1 with data17")
-	s.Update_or_insert(Key_from_block_num(k1), data17)
-	s.Diag_dump(true)
+	s.Write(k1, &data17)
+	s.Diag_dump_block(k1)
 
 	this.log.Debug("\n\nupdating data2 with data18")
-	s.Update_or_insert(Key_from_block_num(k2), data18)
-	s.Diag_dump(true)
+	s.Write(k2, &data18)
+	s.Diag_dump_block(k2)
 
 	this.log.Debug("\n\nupdating data3 with data19")
-	s.Update_or_insert(Key_from_block_num(k3), data19)
-	s.Diag_dump(true)
+	s.Write(k3, &data19)
+	s.Diag_dump_block(k3)
 
 	this.log.Debug("\n\nupdating data4 with data20")
-	s.Update_or_insert(Key_from_block_num(k4), data20)
-	s.Diag_dump(true)
-
+	s.Write(k4, &data20)
+	s.Diag_dump_block(k4)
+	return nil
 }
 
 func (this *slookup_i_test_lib) get_data_string(k uint32, keylen uint32) string {
@@ -204,123 +204,25 @@ func newByteableInt(d int) []byte {
 	return []byte(r)
 }
 
-func (this *slookup_i_test_lib) slookup_test_bigdata(s *slookup_i_lib.slookup_i, KEY_LENGTH uint32, VALUE_LENGTH uint32) {
-	/* add a node, delete a node. */
-	s.Insert(newByteableString("aa"), newByteableByteArray("a234b234c234d234"))
-	s.Insert(newByteableString("bb"), newByteableByteArray("e234f234g234h234"))
-	s.Print(this.log)
-	s.Delete(newByteableString("bb"), true)
-	s.Print(this.log)
-	s.Delete(newByteableString("aa"), true)
-	s.Print(this.log)
+func (this *slookup_i_test_lib) Slookup_test_writing_zero(s *slookup_i_src.Slookup_i) tools.Ret {
+	/* write a block then clear it so it unmarks/deletes all of the child nodes */
 
-	s.Insert(newByteableString("aa"), newByteableByteArray("a234b234c234d234"))
-	s.Insert(newByteableString("bb"), newByteableByteArray("e234f234g234h234"))
-	s.Print(this.log)
-	s.Delete(newByteableString("aa"), true)
-	s.Print(this.log)
-	s.Delete(newByteableString("bb"), true)
-	s.Print(this.log)
+	var data0 []byte = padto4k(binstringstart(0))
+	var dataempty []byte = make([]byte, 0)
+
+	var k0 = rand.Uint32() % 100
+
+	this.log.Debug("\n\ninserting data block ", k0)
+	s.Write(k0, &data0)
+	s.Diag_dump_block(k0)
+
+	this.log.Debug("\n\nclearning data block ", k0)
+	s.Write(k0, &dataempty)
+	s.Diag_dump_block(k0)
 
 }
 
 func (this *slookup_i_test_lib) slookup_test_offspring(s *slookup_i_lib.slookup_i, KEY_LENGTH uint32, VALUE_LENGTH uint32, nodes_per_block uint32) {
-
-	// ArrayList<Boolean> foundresp = new ArrayList();
-	// ArrayList<byte[]> resp = new ArrayList();
-
-	/* going to try and make a setup where updating to a smaller node causes the mother node to be moved.
-	 * basically we want o1 o2 o3 o4 m1 and then shrink the node so it moves m1 */
-
-	s.Insert(newByteableString("aa"), newByteableByteArray("abcdefghijklmnopqrst"))
-	var ret, foundresp, resp = s.Fetch(newByteableString("aa"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	s.Insert(newByteableString("bb"), newByteableByteArray("ABCDEFGHIJKLMNOPQRST"))
-	_, _, resp = s.Fetch(newByteableString("bb"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// that gets me a1a2a3a4a5b1b2b3b4b5
-	s.Update_or_insert(newByteableString("aa"), newByteableByteArray("1234"))
-	s.Print(this.log)
-	_, _, resp = s.Fetch(newByteableString("aa"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// that should get me a1b2b3b4b5b1
-	// now we shrink bb and it should exercise all the weird stuff.
-	s.Update_or_insert(newByteableString("bb"), newByteableByteArray("ZYXW"))
-	_, _, resp = s.Fetch(newByteableString("bb"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// this should fail
-	ret = s.Insert(newByteableString("MX"), newByteableByteArray("biggerthanmax45678901"))
-	if ret == nil {
-		this.log.Error("this should have failed.")
-	}
-	s.Print(this.log)
-
-	s.Insert(newByteableString("10"), newByteableByteArray("a"))
-	_, _, resp = s.Fetch(newByteableString("10"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// size to two nodes
-	s.Update_or_insert(newByteableString("10"), newByteableByteArray("abcdefg"))
-	_, _, resp = s.Fetch(newByteableString("10"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// size back to one node
-	s.Update_or_insert(newByteableString("10"), newByteableByteArray("z"))
-	_, _, resp = s.Fetch(newByteableString("10"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// size to three nodes
-	s.Update_or_insert(newByteableString("10"), newByteableByteArray("abcdefghij"))
-	_, _, resp = s.Fetch(newByteableString("10"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// size back to two nodes
-	s.Update_or_insert(newByteableString("10"), newByteableByteArray("stuvwx"))
-	_, _, resp = s.Fetch(newByteableString("10"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// add more to aa
-	s.Update_or_insert(newByteableString("aa"), newByteableByteArray("s1s2s3s4s5s6s7s8s9"))
-	_, _, resp = s.Fetch(newByteableString("aa"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	// now delete aa
-	s.Delete(newByteableString("aa"), true)
-	s.Print(this.log)
-
-	/* don't change any of the tests above here, at this point we have a really good test
-	    * case, there are two items, bb and 10. bb is one node, 10 is two nodes and the second
-	    * node is in the first spot.
-	    * so when you delete 10, the first thing it does is  delete the offspring which is in the first
-	    * spot, by moving 10's mother node into it, which causes it to rewrite the relations of 10's
-	    * mother node, but that node has already been logically deleted and doesn't really exist.
-	    * so it should just be moved and no pointers changed.
-	   10 bb
-	   -- (wx) bb (ZYXW) 10 (stuv)
-	   root node: 2 free position: 4
-	*/
-	// make sure bb and 10 still are correct
-	_, _, resp = s.Fetch(newByteableString("bb"))
-	this.log.Debug(resp)
-	s.Print(this.log)
-
-	_, _, resp = s.Fetch(newByteableString("10"))
-	this.log.Debug(resp)
-	s.Print(this.log)
 
 	// now delete 10
 	s.Delete(newByteableString("10"), true)
