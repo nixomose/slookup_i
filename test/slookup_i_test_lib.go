@@ -137,43 +137,63 @@ func (this *slookup_i_test_lib) Slookup_4k_tests(s *slookup_i_src.Slookup_i) too
 	var k4 = rand.Uint32() % 100
 
 	this.log.Debug("\n\ninserting data ", k0)
-	s.Write(k0, &data0)
+	if ret := s.Write(k0, &data0); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k0)
 
 	this.log.Debug("\n\ninserting data ", k1)
-	s.Write(k1, &data1)
+	if ret := s.Write(k1, &data1); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k1)
 
 	this.log.Debug("\n\ninserting data ", k2)
-	s.Write(k2, &data2)
+	if ret := s.Write(k2, &data2); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k2)
 
 	this.log.Debug("\n\ninserting data ", k3)
-	s.Write(k3, &data3)
+	if ret := s.Write(k3, &data3); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k3)
 
 	this.log.Debug("\n\ninserting data ", k4)
-	s.Write(k4, &data4)
+	if ret := s.Write(k4, &data4); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k4)
 
 	this.log.Debug("\n\nupdating data0 with data16")
-	s.Write(k0, &data16)
+	if ret := s.Write(k0, &data16); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k0)
 
 	this.log.Debug("\n\nupdating data1 with data17")
-	s.Write(k1, &data17)
+	if ret := s.Write(k1, &data17); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k1)
 
 	this.log.Debug("\n\nupdating data2 with data18")
-	s.Write(k2, &data18)
+	if ret := s.Write(k2, &data18); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k2)
 
 	this.log.Debug("\n\nupdating data3 with data19")
-	s.Write(k3, &data19)
+	if ret := s.Write(k3, &data19); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k3)
 
 	this.log.Debug("\n\nupdating data4 with data20")
-	s.Write(k4, &data20)
+	if ret := s.Write(k4, &data20); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k4)
 	return nil
 }
@@ -199,9 +219,10 @@ func newByteableByteArray(s string) []byte {
 	return []byte(s)
 }
 
-func newByteableInt(d int) []byte {
+func newByteableInt(d int) *[]byte {
 	var r = fmt.Sprintf("%d", d)
-	return []byte(r)
+	var ret = []byte(r)
+	return &ret
 }
 
 func (this *slookup_i_test_lib) Slookup_test_writing_zero(s *slookup_i_src.Slookup_i) tools.Ret {
@@ -213,128 +234,161 @@ func (this *slookup_i_test_lib) Slookup_test_writing_zero(s *slookup_i_src.Slook
 	var k0 = rand.Uint32() % 100
 
 	this.log.Debug("\n\ninserting data block ", k0)
-	s.Write(k0, &data0)
+	if ret := s.Write(k0, &data0); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k0)
 
 	this.log.Debug("\n\nclearning data block ", k0)
-	s.Write(k0, &dataempty)
+	if ret := s.Write(k0, &dataempty); ret != nil {
+		return ret
+	}
 	s.Diag_dump_block(k0)
 
+	return nil
 }
 
-func (this *slookup_i_test_lib) slookup_test_offspring(s *slookup_i_lib.slookup_i, KEY_LENGTH uint32, VALUE_LENGTH uint32, nodes_per_block uint32) {
+// func (this *slookup_i_test_lib) slookup_test_offspring(s *slookup_i_src.Slookup_i, KEY_LENGTH uint32,
+// 	VALUE_LENGTH uint32, nodes_per_block uint32) {
 
-	// now delete 10
-	s.Delete(newByteableString("10"), true)
-	s.Print(this.log)
+// 	// now delete 10
+// 	if ret := s.Delete(newByteableString("10"), true); ret != nil {
+// 		return ret
+// 	}
+// 	s.Print(this.log)
 
-	/* now lets add delete and update lots of stuff... */
+// 	/* now lets add delete and update lots of stuff... */
 
-	//        for (lp = 0; lp < 100; lp++)
-	//          {
-	//            int k = (int)(Math.random() * 30);
-	//            String key = new String("0" + k);
-	//            key = key.substring(key.length() - 2);
-	//            ByteableString keystr = newByteableString(key);
-	//            error("deleting key: " + key);
-	//            s.delete(keystr);
-	//            treeprinter_iii.printNode(s, s.get_root_node());
-	//            s.Print(lib.log)
-	//          }
+// 	//        for (lp = 0; lp < 100; lp++)
+// 	//          {
+// 	//            int k = (int)(Math.random() * 30);
+// 	//            String key = new String("0" + k);
+// 	//            key = key.substring(key.length() - 2);
+// 	//            ByteableString keystr = newByteableString(key);
+// 	//            error("deleting key: " + key);
+// 	//            s.delete(keystr);
+// 	//            treeprinter_iii.printNode(s, s.get_root_node());
+// 	//            s.Print(lib.log)
+// 	//          }
 
-	/* now do a bunch of random inserts updates and deletes */
+// 	/* now do a bunch of random inserts updates and deletes */
 
-	for lp := 0; lp < 1000; lp++ {
-		s.Diag_dump(false)
-		this.log.Debug(
-			"---------------------------------------starting new run----------------------------------------------")
-		for rp := 0; rp < 150; rp++ {
-			var k uint32 = uint32((rand.Intn(99)))
-			var key string = string("0") + tools.Uint32tostring(k)
-			key = key[:len(key)-2]
-			var value string = this.get_data_string(k, VALUE_LENGTH*nodes_per_block)
-			this.log.Debug("update or insert key: " + key + " with " + value)
-			var keystr = newByteableString(key)
-			var valuestr = newByteableByteArray(value)
-			if s.Update_or_insert(keystr, valuestr) != nil {
-				break
-			}
-			//                treeprinter_iii.printNode(s, s.get_root_node());
-			s.Print(this.log)
-		}
-		// now delete until there are only 5 left
-		for s.Get_free_position() > 5 {
-			var k int = rand.Intn(99)
-			var key string = string("0") + tools.Inttostring(k)
-			key = key[:len(key)-2]
-			var keystr string = newByteableString(key)
-			ret, foundresp, _ = s.Fetch(keystr)
-			if ret != nil {
-				break
-			}
-			var b bool = foundresp
-			if b == false {
-				continue
-			}
-			this.log.Debug("deleting existing key: " + key)
-			if s.Delete(keystr, true) != nil {
-				break
-			}
-			//                treeprinter_iii.printNode(s, s.get_root_node());
-			s.Print(this.log)
-		}
+// 	for lp := 0; lp < 1000; lp++ {
+// 		s.Diag_dump(false)
+// 		this.log.Debug(
+// 			"---------------------------------------starting new run----------------------------------------------")
+// 		for rp := 0; rp < 150; rp++ {
+// 			var k uint32 = uint32((rand.Intn(99)))
+// 			var key string = string("0") + tools.Uint32tostring(k)
+// 			key = key[:len(key)-2]
+// 			var value string = this.get_data_string(k, VALUE_LENGTH*nodes_per_block)
+// 			this.log.Debug("update or insert key: " + key + " with " + value)
+// 			var keystr = newByteableString(key)
+// 			var valuestr = newByteableByteArray(value)
+// 			if s.Update_or_insert(keystr, valuestr) != nil {
+// 				break
+// 			}
+// 			//                treeprinter_iii.printNode(s, s.get_root_node());
+// 			s.Print(this.log)
+// 		}
+// 		// now delete until there are only 5 left
+// 		for s.Get_free_position() > 5 {
+// 			var k int = rand.Intn(99)
+// 			var key string = string("0") + tools.Inttostring(k)
+// 			key = key[:len(key)-2]
+// 			var keystr string = newByteableString(key)
+// 			ret, foundresp, _ = s.Fetch(keystr)
+// 			if ret != nil {
+// 				break
+// 			}
+// 			var b bool = foundresp
+// 			if b == false {
+// 				continue
+// 			}
+// 			this.log.Debug("deleting existing key: " + key)
+// 			if s.Delete(keystr, true) != nil {
+// 				break
+// 			}
+// 			//                treeprinter_iii.printNode(s, s.get_root_node());
+// 			s.Print(this.log)
+// 		}
+// 	}
+
+// 	this.log.Debug("---------------------------------------ending run----------------------------------------------")
+
+// }
+
+func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uint32, KEY_LENGTH uint32, VALUE_LENGTH uint32) tools.Ret {
+
+	if ret := s.Write(10, newByteableInt(10)); ret != nil {
+		return ret
 	}
+	s.Print(this.log)
 
-	this.log.Debug("---------------------------------------ending run----------------------------------------------")
+	if ret := s.Write(05, newByteableInt(5)); ret != nil {
+		return ret
+	}
+	s.Print(this.log)
 
-}
+	if ret := s.Write(15, newByteableInt(15)); ret != nil {
+		return ret
+	}
+	s.Print(this.log)
 
-func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_lib.slookup_i, KEY_LENGTH uint32, VALUE_LENGTH uint32) {
+	if ret := s.Write(02, newByteableInt(2)); ret != nil {
+		return ret
+	}
+	s.Print(this.log)
 
-	var tp slookup_i_lib.Treeprinter_iii
+	if ret := s.Write(8, newByteableInt(8)); ret != nil {
+		return ret
+	}
+	s.Print(this.log)
 
-	s.Insert(newByteableString("10"), newByteableInt(10))
+	if ret := s.Write(12, newByteableInt(12)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	// tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("05"), newByteableInt(5))
+
+	if ret := s.Write(18, newByteableInt(18)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	// tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("15"), newByteableInt(15))
+
+	if ret := s.Write(01, newByteableInt(1)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	// tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("02"), newByteableInt(2))
+
+	if ret := s.Write(04, newByteableInt(4)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	// tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("08"), newByteableInt(8))
+
+	if ret := s.Write(06, newByteableInt(6)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("12"), newByteableInt(12))
+
+	if ret := s.Write(14, newByteableInt(14)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("18"), newByteableInt(18))
+
+	if ret := s.Write(16, newByteableInt(16)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("01"), newByteableInt(1))
+
+	if ret := s.Write(19, newByteableInt(19)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("04"), newByteableInt(4))
+
+	if ret := s.Write(9, newByteableInt(9)); ret != nil {
+		return ret
+	}
 	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("06"), newByteableInt(6))
-	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("14"), newByteableInt(14))
-	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("16"), newByteableInt(16))
-	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("19"), newByteableInt(19))
-	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
-	s.Insert(newByteableString("09"), newByteableInt(9))
-	s.Print(this.log)
-	tp.PrintNode(s, s.Get_root_node())
 
 	this.log.Error("delete root node")
 
