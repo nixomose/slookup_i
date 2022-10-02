@@ -318,7 +318,8 @@ func (this *slookup_i_test_lib) Slookup_test_writing_zero(s *slookup_i_src.Slook
 
 // }
 
-func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uhh uint32, KEY_LENGTH uint32, VALUE_LENGTH uint32) tools.Ret {
+func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uhh uint32,
+	KEY_LENGTH uint32, VALUE_LENGTH uint32) tools.Ret {
 
 	if ret := s.Write(10, newByteableInt(10)); ret != nil {
 		return ret
@@ -443,43 +444,40 @@ func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uhh
 
 	for lp = 0; lp < 100; lp++ {
 		for rp := 0; rp < 40; rp++ {
-			var k int = rand.Intn(30) % 30
-			var key string = tools.Inttostring(0) + tools.Inttostring(k)
+			var k uint32 = uint32(rand.Intn(30) % 30)
 
-			key = key[:len(key)-2] //                key = key.substring(key.length() - 2);
-			this.log.Debug("update or insert key: " + key)
-			var keystr string = newByteableString(key)
-			var valueint []byte = newByteableInt(lp)
-			var ret = s.Update_or_insert(keystr, valueint)
+			this.log.Debug("write to block key: " + tools.Uint32tostring(k))
+			var datak []byte = padto4k(binstringstart(int(k)))
+
+			var ret = s.Write(k, &datak)
 			if ret != nil {
 				break
 			}
 
-			tp.PrintNode(s, s.Get_root_node())
 			s.Print(this.log)
 		}
-		// now delete until there are only 5 left
-		for s.Get_free_position() > 5 {
-			var k int = (rand.Intn(30) % 30)
-			var key string = tools.Inttostring(0) + tools.Inttostring(k)
-			key = key[:len(key)-2]
-			var keystr string = newByteableString(key)
+		// // now delete until there are only 5 left
+		// for s.Get_free_position() > 5 {
+		// 	var k int = (rand.Intn(30) % 30)
+		// 	var key string = tools.Inttostring(0) + tools.Inttostring(k)
+		// 	key = key[:len(key)-2]
+		// 	var keystr string = newByteableString(key)
 
-			var ret, foundresp, _ = s.Fetch(keystr)
-			if ret != nil {
-				break
-			}
-			var b bool = foundresp
-			if b == false {
-				continue
-			}
-			this.log.Debug("deleting existing key: " + key)
+		// 	var ret, foundresp, _ = s.Fetch(keystr)
+		// 	if ret != nil {
+		// 		break
+		// 	}
+		// 	var b bool = foundresp
+		// 	if b == false {
+		// 		continue
+		// 	}
+		// 	this.log.Debug("deleting existing key: " + key)
 
-			if s.Delete(keystr, true) != nil {
-				break
-			}
-			// treeprinter_iii.printNode(s, s.get_root_node());
-			s.Print(this.log)
-		}
+		// 	if s.Delete(keystr, true) != nil {
+		// 		break
+		// 	}
+		// treeprinter_iii.printNode(s, s.get_root_node());
+		// s.Print(this.log)
 	}
+	return nil
 }
