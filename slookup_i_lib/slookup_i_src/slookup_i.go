@@ -106,7 +106,12 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 
 	var s Slookup_i
 	s.log = l
-	s.m_header = s.init_header(data_block_size, addressable_blocks, total_blocks, block_group_count)
+
+	// we just need to get the serialized size of the lookup entry so we can space out the header correctly. */
+	var size_calc *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(l, 0, 0, block_group_count)
+	s.m_entry_size_cache = size_calc.Serialized_size()
+
+	s.init_header(data_block_size, addressable_blocks, total_blocks, block_group_count)
 	/* storage gives you direct access to the backing store so you can init and such */
 	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
@@ -122,22 +127,22 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 }
 
 func (this *Slookup_i) init_header(data_block_size uint32, lookup_table_entry_count uint32,
-	total_blocks uint32, block_group_count uint32) Slookup_i_header {
-	var h Slookup_i_header = Slookup_i_header{}
-	h.M_magic = SLOOKUP_I_MAGIC
-	h.M_data_block_size = data_block_size
-	h.M_lookup_table_entry_count = lookup_table_entry_count
-	h.M_total_blocks = total_blocks
-	h.M_block_group_count = block_group_count
-	h.M_lookup_table_start_block = this.Get_first_lookup_table_start_block()
-	h.M_transaction_log_start_block = this.Get_first_transaction_log_start_block()
-	h.M_data_block_start_block = this.Get_first_data_block_start_block()
-	h.M_free_position = h.M_data_block_start_block
+	total_blocks uint32, block_group_count uint32) {
+
+	this.m_header.M_magic = SLOOKUP_I_MAGIC
+	this.m_header.M_data_block_size = data_block_size
+	this.m_header.M_lookup_table_entry_count = lookup_table_entry_count
+	this.m_header.M_total_blocks = total_blocks
+	this.m_header.M_block_group_count = block_group_count
+
+	this.m_header.M_lookup_table_start_block = this.Get_first_lookup_table_start_block()
+	this.m_header.M_transaction_log_start_block = this.Get_first_transaction_log_start_block()
+	this.m_header.M_data_block_start_block = this.Get_first_data_block_start_block()
+	this.m_header.M_free_position = this.m_header.M_data_block_start_block
 
 	// // dirty maybe is a backing store thing? alignment too
 	// h.M_alignment = alignment
 	// h.M_dirty = 0
-	return h
 }
 
 func (this *Slookup_i) Get_logger() *tools.Nixomosetools_logger {
@@ -339,7 +344,10 @@ func (this *Slookup_i) Get_lookup_table_storage_block_count() uint32 {
 	var entry_size uint32 = this.Get_lookup_entry_size_in_bytes()
 	var lookup_table_entry_count uint32 = this.Get_lookup_table_entry_count()
 	var data_block_size uint32 = this.Get_data_block_size_in_bytes()
-
+	if data_block_size == 0 {
+		this.log.Error("sanity failure; slookup_i data block size is zero.")
+		return 0
+	}
 	var bytes_in_lookup_table uint64 = uint64(lookup_table_entry_count) * uint64(entry_size)
 	var blocks_in_lookup_table uint64 = bytes_in_lookup_table / uint64(data_block_size)
 	if bytes_in_lookup_table%uint64(data_block_size) != 0 {
@@ -415,8 +423,9 @@ func (this *Slookup_i) Get_first_transaction_log_start_block() uint32 {
 		 holding transaction log information, after the end of the lookup table (and padding). */
 	// we can make a cache later if need be, but I think this only happens once.
 
-	var lookup_table_storage_block_count = this.Get_lookup_table_storage_block_count()
-	var first_transaction_log_block = LOOKUP_TABLE_START_BLOCK + lookup_table_storage_block_count +
+	var lookup_table_storage_block_count uint32 = this.Get_lookup_table_storage_block_count()
+	var first_transaction_log_block uint32 = this.Get_first_lookup_table_start_block() +
+		lookup_table_storage_block_count +
 		TRANSACTION_LOG_START_PADDING_BLOCKS
 	return first_transaction_log_block
 }

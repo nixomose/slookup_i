@@ -23,9 +23,6 @@ type Slookup_i_entry struct {
 	there are only lookup table entries with the list of data_blocks that comprise the block_group. this is way way
 	simpler than stree.	*/
 
-	// data_block_num   uint32 // the block number (offset from zero in the backing store) of where this entry's position data is (mother node only if a parent)
-	// mother_block_num uint32 // if this block is a mother node, this is zero, if this block is an offspring block it points to this offspring's mother block num
-
 	/* offspring in slookup work sorta the same way as they do in stree.
 	 * a block num refers to an amount of data block_size * num_offspring.
 	 * a lookup table entry therefore has the list of data block numbers for where all the data in the block_group is. */
