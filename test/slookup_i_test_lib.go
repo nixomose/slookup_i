@@ -318,7 +318,7 @@ func (this *slookup_i_test_lib) Slookup_test_writing_zero(s *slookup_i_src.Slook
 
 // }
 
-func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uint32, KEY_LENGTH uint32, VALUE_LENGTH uint32) tools.Ret {
+func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uhh uint32, KEY_LENGTH uint32, VALUE_LENGTH uint32) tools.Ret {
 
 	if ret := s.Write(10, newByteableInt(10)); ret != nil {
 		return ret
@@ -390,53 +390,52 @@ func (this *slookup_i_test_lib) slookup_test_run(s *slookup_i_src.Slookup_i, uin
 	}
 	s.Print(this.log)
 
-	this.log.Error("delete root node")
+	// this.log.Error("delete root node")
 
-	for s.Get_root_node() != 0 {
-		var n *slookup_i_node.slookup_node = s.Load(s.Get_root_node())
-		s.Get_logger().Debug("before delete of " + n.Get_key())
-		if s.Delete(n.Get_key(), true) != nil {
-			break
-		}
-		s.Get_logger().Debug("after delete of " + n.Get_key())
-		tp.PrintNode(s, s.Get_root_node())
-		s.Print(this.log)
-	}
+	// for s.Get_root_node() != 0 {
+	// 	var n *slookup_i_node.slookup_node = s.Load(s.Get_root_node())
+	// 	s.Get_logger().Debug("before delete of " + n.Get_key())
+	// 	if s.Delete(n.Get_key(), true) != nil {
+	// 		break
+	// 	}
+	// 	s.Get_logger().Debug("after delete of " + n.Get_key())
+	// 	tp.PrintNode(s, s.Get_root_node())
+	// 	s.Print(this.log)
+	// }
 
 	var lp int
 	for lp = 0; lp < 100; lp++ {
-		var k int = (int)(rand.Intn(30) % 30)
-		var key string = tools.Inttostring(0) + tools.Inttostring(k)
-		key = key[len(key)-2:]
-		s.Get_logger().Debug("update or insert key: " + key)
-		var keystr string = newByteableString(key)
-		var valueint []byte = newByteableInt(lp)
-		if s.Update_or_insert(keystr, valueint) != nil {
+		var k uint32 = (uint32)(rand.Intn(30) % 30)
+
+		s.Get_logger().Debug("update or insert key: " + tools.Uint32tostring(k))
+		var valueint *[]byte = newByteableInt(lp)
+		if s.Write(k, valueint) != nil {
 			break
 		}
-		tp.PrintNode(s, s.Get_root_node())
+		// tp.PrintNode(s, s.Get_root_node())
 		s.Print(this.log)
 	}
 
 	for lp = 0; lp < 100; lp++ {
-		var k int = rand.Intn(30) % 30
-		var key string = tools.Inttostring(0) + tools.Inttostring(k)
-		key = key[len(key)-2:]
-		var keystr string = newByteableString(key)
-
-		var ret, foundresp, _ = s.Fetch(keystr)
+		var k uint32 = uint32(rand.Intn(30) % 30)
+		var data *[]byte
+		var ret tools.Ret
+		ret, data = s.Read(k)
 		if ret != nil {
 			break
 		}
-		var b bool = foundresp
-		if b == false {
+		this.log.Debug("writing zeroes over existing key block: " + tools.Uint32tostring(k))
+		if len(*data) == 0 {
 			continue
 		}
-		this.log.Debug("deleting existing key: " + key)
-		if s.Delete(keystr, true) != nil {
-			break
+		// write a bunch of zeroes over it
+		var data0 []byte = padto4k(binstringstart(0))
+
+		if ret := s.Write(k, &data0); ret != nil {
+			return ret
 		}
-		tp.PrintNode(s, s.Get_root_node())
+		s.Diag_dump_block(k)
+
 		s.Print(this.log)
 	}
 
