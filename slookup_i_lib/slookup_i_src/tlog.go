@@ -63,9 +63,13 @@ func (this *Tlog) Init() tools.Ret {
 	return tools.Error(this.log, "not implemented yet")
 }
 
+func (this *Tlog) replay(force bool) tools.Ret {
+	// if there's anything unplayed in the transaction log, apply it and mark it done.
+	return nil
+}
 func (this *Tlog) Startup(force bool) tools.Ret {
 	// assumes replay (whatever that means)
-	return tools.Error(this.log, "not implemented yet")
+	return this.replay(force)
 }
 
 func (this *Tlog) Shutdown() tools.Ret {
@@ -78,8 +82,9 @@ func (this *Tlog) Start_transaction() tools.Ret {
 }
 
 func (this *Tlog) Read_block(block_num uint32) (tools.Ret, *[]byte) {
-	/* read a single block synchronously */
-	return tools.Error(this.log, "not implemented yet"), nil
+	/* read a single block synchronously. if it's in the transaction log, return that,
+	if not, go after the backing storage. */
+	return this.m_storage.Load_block_data(block_num)
 }
 
 func (this *Tlog) read_into_buffer(rets chan<- tools.Ret, block_num uint32, destposstart uint32, destposend uint32,
@@ -164,7 +169,9 @@ func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
 }
 
 func (this *Tlog) Write_block(block_num uint32, n *[]byte) tools.Ret {
-	return tools.Error(this.log, "not implemented yet")
+	/* add this write block to the transaction log, or overwrite an existing entry
+	for this block_num if it's already in the transaction log. */
+	return this.m_storage.Store_block_data(block_num, n)
 }
 
 func (this *Tlog) write_from_buffer(rets chan<- tools.Ret, block_num uint32, destposstart uint32, destposend uint32,

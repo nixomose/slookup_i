@@ -22,6 +22,8 @@ import (
 
 const ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC uint64 = 0x5a454e4f53534c31 // ZENOSSL1  zendemic object store slookup I
 
+const SLOOKUP_ERROR_INVALID_HEADER int = 1000
+
 type Slookup_i_header struct {
 	// must be capitalized or we can deserialize because it's not exported...
 	M_magic                       uint64
@@ -156,13 +158,16 @@ func (this *Slookup_i_header) Initial_load_and_verify_header(
 	var m5 = (*data)[int(this.serialized_size()) : this.serialized_size()+uint32(crypto.MD5.Size())]
 
 	var m5check = md5.Sum(header_data)
-	if bytes.Compare(m5check[:], m5) != 0 {
-		return tools.Error(log, "unable to read slookup_i header, hash check failed")
+	if bytes.Equal(m5check[:], m5) == false {
+
+		return tools.ErrorWithCodeNoLog(log, SLOOKUP_ERROR_INVALID_HEADER,
+			"unable to read slookup_i header, hash check failed")
 	}
 
 	*data = header_data
 	if len(*data) < int(this.serialized_size()) {
-		return tools.Error(log, "unable to read slookup header of ", this.serialized_size(), " got back ", bytes_read)
+		return tools.ErrorWithCodeNoLog(log, SLOOKUP_ERROR_INVALID_HEADER,
+			"unable to read slookup header of ", this.serialized_size(), " got back ", bytes_read)
 	}
 
 	ret = this.deserialize(log, data)
@@ -174,7 +179,8 @@ func (this *Slookup_i_header) Initial_load_and_verify_header(
 	I can see where this could be a dangerously bad idea, so we're just going to error out, let
 	the user deal with it. */
 	if this.M_magic != ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC {
-		return tools.Error(log, "magic number doesn't match in slookup_i header")
+		return tools.ErrorWithCodeNoLog(log, SLOOKUP_ERROR_INVALID_HEADER,
+			"magic number doesn't match in slookup_i header")
 	}
 
 	if check_device_params {

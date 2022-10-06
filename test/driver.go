@@ -150,7 +150,7 @@ func test_4k_functions(log *tools.Nixomosetools_logger, fmstore slookup_i_lib.Sl
 	return nil
 }
 
-func test_basics() {
+func test_basics() tools.Ret {
 
 	var ret tools.Ret
 	var loggertest *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
@@ -173,13 +173,24 @@ func test_basics() {
 
 	ret = slookup.Startup(false)
 	if ret != nil {
-		tools.Error(loggertest, "Unable to create block storage: ", ret.Get_errmsg())
-		return
+		/* so this may fail on a brand new setup where the header hasn't been written yet.
+		   if we are told this is an init startup, then write the new header and try again. */
+		if ret.Get_errcode() == slookup_i_src.SLOOKUP_ERROR_INVALID_HEADER {
+			return tools.Error(loggertest, "Unable to create block storage: ", ret.Get_errmsg())
+		}
+		if ret = slookup.Init(); ret != nil {
+			return ret
+		}
+		// now try again it should work
+		ret = slookup.Startup(false)
+		if ret != nil {
+			tools.Error(loggertest, "Unable to start up block storage after init: ", ret.Get_errmsg())
+			return ret
+		}
 	}
 	ret = slookup.Shutdown()
 	if ret != nil {
-		tools.Error(loggertest, "Unable to shut down block storage: ", ret.Get_errmsg())
-		return
+		return tools.Error(loggertest, "Unable to shut down block storage: ", ret.Get_errmsg())
 	}
-
+	return nil
 }
