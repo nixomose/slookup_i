@@ -216,7 +216,12 @@ func (this *Slookup_i) discard_lookup_table() tools.Ret {
 	g, ctxret := errgroup.WithContext(context.Background())
 
 	for lp := start_block; lp < blocks_count; lp++ {
-		g.Go(this.m_storage.Discard_block(lp))
+		g.Go(func() error {
+			var ret tools.Ret
+			if ret = this.m_storage.Discard_block(lp); ret != nil {
+				return ret.Error()
+			}
+		})
 	}
 	var err = g.Wait()
 	if err != nil {
