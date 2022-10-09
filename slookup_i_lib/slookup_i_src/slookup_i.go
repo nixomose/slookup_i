@@ -219,7 +219,7 @@ func (this *Slookup_i) discard_lookup_table() tools.Ret {
 		g.Go(func() error {
 			var ret tools.Ret
 			if ret = this.m_storage.Discard_block(lp); ret != nil {
-				return ret.Error()
+				return ret
 			}
 			return nil
 		})
