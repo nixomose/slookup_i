@@ -213,7 +213,7 @@ func (this *Slookup_i) discard_lookup_table() tools.Ret {
 	var blocks_count uint32 = this.Get_lookup_table_storage_block_count()
 	//	var ctx context.Context
 
-	g, ctxret := errgroup.WithContext(context.Background())
+	g, _ /*ctxret*/ := errgroup.WithContext(context.Background())
 
 	for lp := start_block; lp < blocks_count; lp++ {
 		g.Go(func() error {
@@ -221,6 +221,7 @@ func (this *Slookup_i) discard_lookup_table() tools.Ret {
 			if ret = this.m_storage.Discard_block(lp); ret != nil {
 				return ret.Error()
 			}
+			return nil
 		})
 	}
 	var err = g.Wait()
