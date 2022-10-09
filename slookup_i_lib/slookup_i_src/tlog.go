@@ -60,7 +60,8 @@ func (this *Tlog) Is_initialized() (tools.Ret, bool) {
 	return tools.Error(this.log, "not implemented yet"), false
 }
 func (this *Tlog) Init() tools.Ret {
-	return tools.Error(this.log, "not implemented yet")
+	// write out the transaction log header
+	return nil
 }
 
 func (this *Tlog) replay(force bool) tools.Ret {
@@ -128,7 +129,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 		go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
 	}
 
-	// wait for them all to come back.
+	// wait for them all to come back. xxxz change to wait group?
 	var ret tools.Ret = nil
 	for wait := 0; wait < int(block_num_end-block_num_start); wait++ {
 		var ret2 = <-rets

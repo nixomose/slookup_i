@@ -170,12 +170,18 @@ func test_basics() tools.Ret {
 
 	var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(loggertest, mstore, tlog,
 		addressable_blocks, block_group_count, data_block_size, total_blocks)
-
+	var initted bool
+	if ret, initted = slookup.Is_initialized(); ret != nil {
+		return ret
+	}
+	if initted == false {
+		slookup.Init()
+	}
 	ret = slookup.Startup(false)
 	if ret != nil {
 		/* so this may fail on a brand new setup where the header hasn't been written yet.
 		   if we are told this is an init startup, then write the new header and try again. */
-		if ret.Get_errcode() == slookup_i_src.SLOOKUP_ERROR_INVALID_HEADER {
+		if ret.Get_errcode() != slookup_i_src.SLOOKUP_ERROR_INVALID_HEADER {
 			return tools.Error(loggertest, "Unable to create block storage: ", ret.Get_errmsg())
 		}
 		if ret = slookup.Init(); ret != nil {

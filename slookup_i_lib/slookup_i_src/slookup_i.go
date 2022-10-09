@@ -38,6 +38,7 @@ the backing store. that's not its job, it's a transaction log, not a backing sto
 package slookup_i_src
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"syscall"
@@ -45,6 +46,7 @@ import (
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
 	slookup_i_lib_interfaces "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
+	"golang.org/x/sync/errgroup"
 )
 
 // this is the block that the lookup table starts at, block 0 is the header.
@@ -206,8 +208,21 @@ func (this *Slookup_i) zero_out_lookup_table() tools.Ret {
 }
 
 func (this *Slookup_i) discard_lookup_table() tools.Ret {
-	// not implemented yet
-	return tools.ErrorWithCodeNoLog(this.log, int(syscall.ENAVAIL))
+	/* get the blocks assigned to the lookup table, and call discard on them */
+	var start_block uint32 = this.Get_first_lookup_table_start_block()
+	var blocks_count uint32 = this.Get_lookup_table_storage_block_count()
+	//	var ctx context.Context
+
+	g, ctxret := errgroup.WithContext(context.Background())
+
+	for lp := start_block; lp < blocks_count; lp++ {
+		g.Go(this.m_storage.Discard_block(lp))
+	}
+	var err = g.Wait()
+	if err != nil {
+		return tools.Error(this.log, "unable to discard lookup table blocks ", start_block, " to ", start_block+blocks_count, ". err: ", err)
+	}
+	return nil
 }
 
 func (this *Slookup_i) Startup(force bool) tools.Ret {

@@ -50,6 +50,9 @@ type Slookup_i_backing_store_interface interface {
 
 	Store_block_data(block_num uint32, n *[]byte) tools.Ret
 
+	// if backing store can discard, do that, if not you must zero out the blocks
+	Discard_block(block_num uint32) tools.Ret
+
 	//  this is owned by slookup_i, not backing store. Get_free_position() (ret tools.Ret, resp uint32)
 
 	Get_total_blocks() (tools.Ret, uint32) // total blocks that can fit in this backing storage

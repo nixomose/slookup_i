@@ -17,3 +17,5 @@ require (
 	github.com/nixomose/nixomosegotools v0.0.0-20220601021307-4fef638de118
 	golang.org/x/sys v0.0.0-20220928140112-f11e5e49a4ec
 )
+
+require golang.org/x/sync v0.0.0-20220929204114-8fcdb60fdcc0 // indirect
