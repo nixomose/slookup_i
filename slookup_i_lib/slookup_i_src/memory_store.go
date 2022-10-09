@@ -44,26 +44,31 @@ func New_memory_store(l *tools.Nixomosetools_logger) *Memory_store {
 // 	return nil, &limit_data
 // }
 
-func (this *Memory_store) Load_block_data(pos uint32) (tools.Ret, *[]byte) {
-	var val, ok = this.storage[pos]
+func (this *Memory_store) Load_block_data(block_num uint32) (tools.Ret, *[]byte) {
+	var val, ok = this.storage[block_num]
 	if ok == false {
 		var r = make([]byte, 4096)
-		if pos == 1 {
-			this.log.Debug("loading empty block: ", pos)
+		if block_num == 1 {
+			this.log.Debug("loading empty block: ", block_num)
 		}
 		return nil, &r
 	}
-	if pos == 1 {
-		this.log.Debug("loading existing block: ", pos)
+	if block_num == 1 {
+		this.log.Debug("loading existing block: ", block_num)
 	}
 	return nil, &val
 }
 
-func (this *Memory_store) Store_block_data(pos uint32, data *[]byte) tools.Ret {
-	this.storage[pos] = *data
-	if pos == 1 {
-		this.log.Debug("storing block: ", pos, " with ", len(*data), " bytes of data")
+func (this *Memory_store) Store_block_data(block_num uint32, data *[]byte) tools.Ret {
+	this.storage[block_num] = *data
+	if block_num == 1 {
+		this.log.Debug("storing block: ", block_num, " with ", len(*data), " bytes of data")
 	}
+	return nil
+}
+
+func (this *Memory_store) Discard_block(block_num uint32) tools.Ret {
+	delete(this.storage, block_num)
 	return nil
 }
 

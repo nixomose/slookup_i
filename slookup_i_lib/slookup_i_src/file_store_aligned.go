@@ -55,6 +55,9 @@ type File_store_aligned struct {
 	m_iopath   File_store_io_path
 	m_sync     bool // similar to directio, but more about how we open the file.
 	m_readonly bool // did we open readonly
+
+	m_is_block_device_cached       bool
+	m_is_block_device_cached_value bool
 }
 
 type File_store_header struct {
@@ -131,6 +134,8 @@ func New_File_store_aligned(l *tools.Nixomosetools_logger, store_filename string
 	f.m_initial_block_count = block_count
 	f.m_initial_file_store_block_alignment = alignment
 	f.m_iopath = iopath
+	f.m_is_block_device_cached = false
+	f.m_is_block_device_cached_value = false
 
 	// init is called to load up the f.m_header if we're making a new one, otherwise it would be read from disk
 	return &f
@@ -288,6 +293,10 @@ func (this *File_store_aligned) is_block_device(path string) (tools.Ret, bool) {
 	/* if it's not a block device, but a file that may not exist, lop off the filename and go for the path,
 	   that thing won't be a block device either. if they give you the path of a block device that doesn't exist
 	   well, it doesn't exist, it's not a block device. */
+
+	if this.m_is_block_device_cached != false {
+		return nil, this.m_is_block_device_cached_value
+	}
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		/* if it doesn't exist, it is not a block device, it is not a directory, it is not
 		anything. So we should touch it, so it exists, so we can check its empty header. */
@@ -316,8 +325,13 @@ func (this *File_store_aligned) is_block_device(path string) (tools.Ret, bool) {
 		return tools.Error(this.log, "Error getting lstat of: ", path, " error: ", err), false
 	}
 	if st.Mode&S_IFMT == S_ISBLK { // got this from the kernel macro
+		this.m_is_block_device_cached_value = true
+		this.m_is_block_device_cached = true
 		return nil, true
 	}
+
+	this.m_is_block_device_cached_value = false
+	this.m_is_block_device_cached = true
 	return nil, false
 }
 
@@ -819,6 +833,28 @@ func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte)
 	}
 	// leave room for file header block
 	return this.write_raw_data(block_num+FILE_HEADER_BLOCK_OFFSET, data)
+}
+
+// user facing function to discard a block or write zeroes over it if underlying store doesn't support discard
+
+func (this *File_store_aligned) Discard_block(block_num uint32) tools.Ret {
+
+	var ret, is_block_device = this.is_block_device(this.m_store_filename)
+	if ret != nil {
+		return ret
+	}
+	if is_block_device {
+		// call discard on block device
+		//xxxz
+		// return nil;
+	}
+	var zeros = make([]byte, this.m_header.M_block_size) // xxxz cache zeroes
+	ret = this.Store_block_data(block_num, &zeros)
+	if ret != nil {
+		return tools.Error(this.log, "error trying to discard: ", this.m_store_filename, " block: ", block_num,
+			" error: ", ret.Get_errmsg())
+	}
+	return nil
 }
 
 // func (this *File_store_aligned) set_free_position(block_num uint32) tools.Ret {
