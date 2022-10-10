@@ -9,15 +9,11 @@ import (
 )
 
 type Memory_store struct {
-	log *tools.Nixomosetools_logger
-
-	initted bool
+	log     *tools.Nixomosetools_logger
 	started bool
-
 	storage map[uint32][]byte
 
 	// cache these becaues they're used all the time.
-	root_node     uint32
 	free_position uint32 // location of first free array element (equal to array length + 1)
 }
 
@@ -28,7 +24,6 @@ var _ slookup_i_lib.Slookup_i_backing_store_interface = (*Memory_store)(nil)
 func New_memory_store(l *tools.Nixomosetools_logger) *Memory_store {
 	var store Memory_store
 	store.log = l
-	store.Init()
 	return &store
 }
 
@@ -73,21 +68,41 @@ func (this *Memory_store) Discard_block(block_num uint32) tools.Ret {
 }
 
 func (this *Memory_store) Is_backing_store_uninitialized() (tools.Ret, bool) {
-	var uninitted = !this.initted
-	return nil, uninitted
 
+	/* Read the first 4k and see if it's all zeroes. */
+
+	bresp, ok := this.storage[0]
+	if ok == false {
+		/* not found not initted */
+		return nil, true
+	}
+
+	var bytes_read int = len(bresp)
+
+	// short files will be empty and fail above, they should just be initted if it's a file.
+	/* block devices should fail on this, and frankly if we can read something, and don't get EOF,
+	   we don't know what it is, so error out, don't init it. */
+	if bytes_read != int(CHECK_START_BLANK_BYTES) {
+		return tools.Error(this.log, "Unable to read from header block in data store block zero for length ",
+			CHECK_START_BLANK_BYTES, ", only received ", bytes_read, " bytes"), false
+	}
+
+	for lp := 0; lp < int(CHECK_START_BLANK_BYTES); lp++ {
+		if bresp[lp] != 0 {
+			return nil, false
+		}
+	}
+	return nil, true
 }
 
 func (this *Memory_store) Startup(force bool) tools.Ret {
-	if this.initted == false {
-		return tools.Error(this.log, "memory store hasn't been initted yet, can't start up.")
-	}
 	if this.started != false {
-		return tools.Error(this.log, "memory store has already been starteed up, not starting again")
+		return tools.Error(this.log, "memory store has already been started up, not starting again")
 	}
 
+	/* this is really what init() is supposed to do, but since we don't persist data between runs, we have to be able to start
+	up without initting every time */
 	this.storage = make(map[uint32][]byte)
-	this.root_node = 0
 	this.free_position = 1 // zero is special value, so array allocation positions start at 1
 	this.started = true
 	/* zero is the location where we store our header inforation if we were storing on disk, this memory implementation
@@ -97,9 +112,6 @@ func (this *Memory_store) Startup(force bool) tools.Ret {
 
 func (this *Memory_store) Shutdown() tools.Ret {
 	// we don't need to manually delete all the values, but we can
-	if this.initted == false {
-		return tools.Error(this.log, "memory store hasn't been initted yet, can't shut down.")
-	}
 	if this.started == false {
 		return tools.Error(this.log, "memory store hasn't been started, can't be shut down")
 	}
@@ -110,20 +122,20 @@ func (this *Memory_store) Shutdown() tools.Ret {
 	return nil
 }
 
-func (this *Memory_store) Get_root_node() (tools.Ret, uint32) {
-	this.log.Debug("get root node: ", this.root_node)
-	return nil, this.root_node
-}
+// func (this *Memory_store) Get_root_node() (tools.Ret, uint32) {
+// 	this.log.Debug("get root node: ", this.root_node)
+// 	return nil, this.root_node
+// }
 
-func (this *Memory_store) Set_root_node(pos uint32) tools.Ret {
-	this.log.Debug("set root node to ", pos)
-	this.root_node = pos
-	return nil
-}
+// func (this *Memory_store) Set_root_node(pos uint32) tools.Ret {
+// 	this.log.Debug("set root node to ", pos)
+// 	this.root_node = pos
+// 	return nil
+// }
 
 func (this *Memory_store) Init() tools.Ret {
-	this.initted = true
 	this.started = false
+	this.storage = make(map[uint32][]byte)
 	return nil
 }
 
