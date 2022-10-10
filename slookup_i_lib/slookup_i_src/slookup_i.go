@@ -227,7 +227,7 @@ func (this *Slookup_i) discard_lookup_table() tools.Ret {
 			return nil
 		})
 	}
-	var err = g.Wait()
+	var err = group.Wait()
 	if err != nil {
 		return tools.Error(this.log, "unable to discard lookup table blocks ", start_block, " to ", end_block, ". err: ", err)
 	}
