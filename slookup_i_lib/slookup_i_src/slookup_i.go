@@ -39,6 +39,7 @@ package slookup_i_src
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
 	"sync"
 	"syscall"
@@ -177,8 +178,38 @@ func (this *Slookup_i) Init() tools.Ret {
 		return ret
 	}
 
-	return this.zero_out_lookup_table()
-	// xxxz seems to me we should write out the slookup_i header here too....xxxz
+	if ret = this.zero_out_lookup_table(); ret != nil {
+		return ret
+	}
+	// and finally write out the slookup_i header to the first block
+
+	return this.write_slookup_header()
+}
+
+func (this *Slookup_i) write_slookup_header() tools.Ret {
+	/* use the tlog to write the slookup header update to block 0 */
+
+	var data *[]byte
+	var ret tools.Ret
+	if ret, data = this.m_header.serialize(this.log); ret != nil {
+		return ret
+	}
+	var m5 = md5.Sum(*data)
+	var hashed_data = append(*data, m5[:]...)
+
+	// if initting {
+	// 	/* so the very first time we do this, we have to write out CHECK_START_BLANK_BYTES
+	// 	so that the second time we come in, we can read a whole header check bytes block without
+	// 	getting EOF */
+	// 	var to_write = tools.Maxint(CHECK_START_BLANK_BYTES, int(this.m_initial_block_size))
+	// 	var pad_len = to_write - len(hashed_data)
+	// 	for pad_len > 0 { // slow and crappy but we only ever do it once.
+	// 		hashed_data = append(hashed_data, 0)
+	// 		pad_len = to_write - len(hashed_data)
+	// 	}
+	// }
+
+	return this.m_transaction_log_storage.Write_block(0, &hashed_data)
 }
 
 func (this *Slookup_i) zero_out_lookup_table() tools.Ret {

@@ -102,7 +102,7 @@ func (this *Memory_store) Startup(force bool) tools.Ret {
 
 	/* this is really what init() is supposed to do, but since we don't persist data between runs, we have to be able to start
 	up without initting every time */
-	this.storage = make(map[uint32][]byte)
+	// init has run memory is already allocated
 	this.free_position = 1 // zero is special value, so array allocation positions start at 1
 	this.started = true
 	/* zero is the location where we store our header inforation if we were storing on disk, this memory implementation
