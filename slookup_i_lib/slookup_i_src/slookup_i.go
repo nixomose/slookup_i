@@ -168,7 +168,7 @@ func (this *Slookup_i) Is_initialized() (tools.Ret, bool) {
 func (this *Slookup_i) Init() tools.Ret {
 	/* init the backing store, as in if it's a filestore, write the header info
 	so it becomes initted, if it's a block device, zero out the lookup table. */
-	var ret = this.m_storage.Init()
+	var ret = this.m_storage.Init() // this should write the file header if it's a disk/file/block device
 	if ret != nil {
 		return ret
 	}
@@ -178,6 +178,7 @@ func (this *Slookup_i) Init() tools.Ret {
 	}
 
 	return this.zero_out_lookup_table()
+	// xxxz seems to me we should write out the slookup_i header here too....xxxz
 }
 
 func (this *Slookup_i) zero_out_lookup_table() tools.Ret {
@@ -210,15 +211,17 @@ func (this *Slookup_i) zero_out_lookup_table() tools.Ret {
 func (this *Slookup_i) discard_lookup_table() tools.Ret {
 	/* get the blocks assigned to the lookup table, and call discard on them */
 	var start_block uint32 = this.Get_first_lookup_table_start_block()
-	var blocks_count uint32 = this.Get_lookup_table_storage_block_count()
+	var end_block uint32 = start_block + this.Get_lookup_table_storage_block_count()
 	//	var ctx context.Context
 
-	g, _ /*ctxret*/ := errgroup.WithContext(context.Background())
-
-	for lp := start_block; lp < blocks_count; lp++ {
-		g.Go(func() error {
+	var group *errgroup.Group
+	group, _ = errgroup.WithContext(context.Background())
+	var lp uint32
+	for lp = start_block; lp < end_block; lp++ {
+		var block_num uint32 = lp // make a copy of lp to pass to go routine
+		group.Go(func() error {
 			var ret tools.Ret
-			if ret = this.m_storage.Discard_block(lp); ret != nil {
+			if ret = this.m_storage.Discard_block(block_num); ret != nil {
 				return ret
 			}
 			return nil
@@ -226,7 +229,7 @@ func (this *Slookup_i) discard_lookup_table() tools.Ret {
 	}
 	var err = g.Wait()
 	if err != nil {
-		return tools.Error(this.log, "unable to discard lookup table blocks ", start_block, " to ", start_block+blocks_count, ". err: ", err)
+		return tools.Error(this.log, "unable to discard lookup table blocks ", start_block, " to ", end_block, ". err: ", err)
 	}
 	return nil
 }
