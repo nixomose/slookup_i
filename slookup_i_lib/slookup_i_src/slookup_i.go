@@ -56,8 +56,6 @@ const LOOKUP_TABLE_START_BLOCK uint32 = 10             // make some room in case
 const TRANSACTION_LOG_START_PADDING_BLOCKS uint32 = 10 // more room, this is the number of blocks after the lookup table before the transaction log starts
 const DATA_BLOCKS_START_PADDING_BLOCKS uint32 = 10     // what a horrible name for this., this is the number of blocks after the transaction log, before the data blocks start.
 
-const SLOOKUP_I_MAGIC uint64 = 0x534C4F4F4B555049 // SLOOKUPI
-
 type Slookup_i struct {
 
 	/* this is the guts of the lookup table. it'll be a bit more refined since we worked out all the details in
@@ -114,7 +112,7 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 	var size_calc *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(l, 0, 0, block_group_count)
 	s.m_entry_size_cache = size_calc.Serialized_size()
 
-	s.init_header(data_block_size, addressable_blocks, total_blocks, block_group_count)
+	s.init_header(data_block_size, addressable_blocks, s.m_entry_size_cache, total_blocks, block_group_count)
 	/* storage gives you direct access to the backing store so you can init and such */
 	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
@@ -130,11 +128,12 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 }
 
 func (this *Slookup_i) init_header(data_block_size uint32, lookup_table_entry_count uint32,
-	total_blocks uint32, block_group_count uint32) {
+	lookup_table_entry_size uint32, total_blocks uint32, block_group_count uint32) {
 
-	this.m_header.M_magic = SLOOKUP_I_MAGIC
+	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC
 	this.m_header.M_data_block_size = data_block_size
 	this.m_header.M_lookup_table_entry_count = lookup_table_entry_count
+	this.m_header.M_lookup_table_entry_size = lookup_table_entry_size
 	this.m_header.M_total_blocks = total_blocks
 	this.m_header.M_block_group_count = block_group_count
 
@@ -296,7 +295,7 @@ func (this *Slookup_i) Shutdown() tools.Ret {
 	it will not apply the last (incomplete) transaction. */
 	var ret = this.m_transaction_log_storage.Shutdown()
 	if ret != nil {
-		return nil
+		return nil // xxxz?
 	}
 	return this.m_storage.Shutdown()
 }
