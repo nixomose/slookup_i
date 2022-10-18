@@ -9,7 +9,49 @@ import (
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 	"github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_src"
+	"github.com/nixomose/stree_v/stree_v_lib/stree_v_lib"
 )
+
+func make_file_store_aligned(log *tools.Nixomosetools_logger, device_directio bool, device_alignment uint32,
+	PHYSICAL_BLOCK_SIZE uint32, slookup_i_data_block_size uint32) (tools.Ret, *slookup_i_src.File_store_aligned) {
+
+	var alignment = device_alignment // PHYSICAL_BLOCK_SIZE // 4k will use 8k per block because of our stree block header pushes the whole node size to a bit over 4k
+
+	// if directio is set alignment must be % PHYSICAL_BLOCK_SIZE == 0, or reads and writes will fail.
+	if device_directio {
+		if alignment == 0 {
+			alignment = PHYSICAL_BLOCK_SIZE
+			device_alignment = alignment // force caller to get this update
+		}
+
+		if alignment%PHYSICAL_BLOCK_SIZE != 0 {
+			return tools.Error(log, "your alignment must fall on a ", PHYSICAL_BLOCK_SIZE, " boundary if directio is on. ",
+				"alignment: ", alignment, " % ", PHYSICAL_BLOCK_SIZE, " is ", alignment%PHYSICAL_BLOCK_SIZE), nil
+		}
+	} else {
+		if alignment == 0 {
+			alignment = slookup_i_data_block_size
+			device_alignment = alignment // same thing here, if they didn't specify alignment, we tell the device what it should be
+		}
+	}
+
+	/* first we have to see if we're doing directio or default io path so we can inject that into the
+	   filestore aligned object */
+	var iopath slookup_i_src.File_store_io_path
+	if device_directio {
+		iopath = slookup_i_src.New_file_store_io_path_directio()
+	} else {
+		iopath = slookup_i_src.New_file_store_io_path_default()
+	}
+
+	/* so the backing physical store for the stree is the block device or file passed... */
+
+	var fstore *stree_v_lib.File_store_aligned = stree_v_lib.New_File_store_aligned(this.log,
+		device.Local_storage_file, uint32(stree_block_size), uint32(alignment),
+		device.Additional_nodes_per_block, iopath)
+
+	return nil, fstore
+}
 
 func main() {
 
@@ -39,12 +81,18 @@ func main() {
 	{ // init the filestore header make it ready to go
 
 		/* so the backing physical store for the slookup is the block device or file passed... */
-		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
-			data_block_size, addressable_blocks, alignment, iopath)
-
-		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+		// var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
+		// 	data_block_size, addressable_blocks, alignment, iopath)
 
 		var ret tools.Ret
+		var directio bool = true
+		var device_alignment uint32 = 4096
+		var physical_block_size uint32 = 4096
+		var data_block_size uint32 = 4096
+		var fstore *slookup_i_src.File_store_aligned
+		ret, fstore = make_file_store_aligned(log, directio, device_alignment, physical_block_size, data_block_size)
+		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+
 		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
 			addressable_blocks, block_group_count, data_block_size, total_blocks)
 
