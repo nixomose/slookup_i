@@ -119,6 +119,8 @@ func (this *Memory_store) Shutdown() tools.Ret {
 	for k := range this.storage {
 		delete(this.storage, k)
 	}
+	this.started = false
+	this.free_position = 1
 	return nil
 }
 
