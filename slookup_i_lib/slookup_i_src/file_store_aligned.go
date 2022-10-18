@@ -221,11 +221,11 @@ func (this *File_store_aligned) Init() tools.Ret {
 	this.m_header.M_alignment = this.m_initial_file_store_block_alignment
 	this.m_header.M_dirty = 1
 
-	this.log.Debug("blocks used for header", tools.Prettylargenumber_uint64(uint64(FILE_HEADER_BLOCK_OFFSET)))
+	this.log.Debug("blocks used for header: ", tools.Prettylargenumber_uint64(uint64(FILE_HEADER_BLOCK_OFFSET)))
 
-	this.log.Debug("total blocks used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count)+
+	this.log.Debug("total blocks used in backing store: ", tools.Prettylargenumber_uint64(uint64(this.m_header.M_block_count)+
 		uint64(FILE_HEADER_BLOCK_OFFSET)))
-	this.log.Debug("total bytes used in backing store", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)*
+	this.log.Debug("total bytes used in backing store: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)*
 		(uint64(this.m_header.M_block_count)+uint64(FILE_HEADER_BLOCK_OFFSET))))
 	// which isn't true because it doesn't take alignment padding into account
 
@@ -234,7 +234,7 @@ func (this *File_store_aligned) Init() tools.Ret {
 	this.log.Debug("number of physical bytes used for a block: ", tools.Prettylargenumber_uint64(this.calc_absolute_offset(1)))
 
 	// this is actually the amount of space we can possibly use, with the file header and alignment padding.
-	this.log.Debug("total bytes used in backing store with alignment", tools.Prettylargenumber_uint64(uint64(this.calc_absolute_offset(1))*
+	this.log.Debug("total bytes used in backing store with alignment: ", tools.Prettylargenumber_uint64(uint64(this.calc_absolute_offset(1))*
 		(uint64(this.m_header.M_block_count)+uint64(FILE_HEADER_BLOCK_OFFSET))))
 
 	/* While we're here we can work out how much space is being wasted by alignment. why not. */
