@@ -61,10 +61,10 @@ func (this *Transaction_log) Init() tools.Ret {
 }
 
 func (this *Transaction_log) Startup(force bool) tools.Ret { // assumes replay
-	return tools.Error(this.log, "not implemented yet.")
+	return nil
 }
 func (this *Transaction_log) Shutdown() tools.Ret { // should not flush the last transaction if still in flight.
-	return tools.Error(this.log, "not implemented yet.")
+	return nil
 }
 func (this *Transaction_log) Start_transaction() tools.Ret {
 	return tools.Error(this.log, "not implemented yet.")
