@@ -74,7 +74,7 @@ func (this *Tlog) Startup(force bool) tools.Ret {
 }
 
 func (this *Tlog) Shutdown() tools.Ret {
-	return tools.Error(this.log, "not implemented yet")
+	return nil
 } // should not flush the last transaction if still in flight.
 
 func (this *Tlog) Start_transaction() tools.Ret {
