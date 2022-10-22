@@ -9,11 +9,10 @@ import (
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_interfaces"
 	"github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_src"
-	"github.com/nixomose/stree_v/stree_v_lib/stree_v_lib"
 )
 
-func make_file_store_aligned(log *tools.Nixomosetools_logger, device_directio bool, device_alignment uint32,
-	PHYSICAL_BLOCK_SIZE uint32, slookup_i_data_block_size uint32) (tools.Ret, *slookup_i_src.File_store_aligned) {
+func make_file_store_aligned(log *tools.Nixomosetools_logger, storage_file string, device_directio bool, device_alignment uint32,
+	PHYSICAL_BLOCK_SIZE uint32, slookup_i_data_block_size uint32, block_count uint32) (tools.Ret, *slookup_i_src.File_store_aligned) {
 
 	var alignment = device_alignment // PHYSICAL_BLOCK_SIZE // 4k will use 8k per block because of our stree block header pushes the whole node size to a bit over 4k
 
@@ -46,9 +45,8 @@ func make_file_store_aligned(log *tools.Nixomosetools_logger, device_directio bo
 
 	/* so the backing physical store for the stree is the block device or file passed... */
 
-	var fstore *stree_v_lib.File_store_aligned = stree_v_lib.New_File_store_aligned(this.log,
-		device.Local_storage_file, uint32(stree_block_size), uint32(alignment),
-		device.Additional_nodes_per_block, iopath)
+	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log,
+		storage_file, slookup_i_data_block_size, block_count, alignment, iopath)
 
 	return nil, fstore
 }
@@ -89,8 +87,12 @@ func main() {
 		var device_alignment uint32 = 4096
 		var physical_block_size uint32 = 4096
 		var data_block_size uint32 = 4096
+		var storage_file = "/tmp/slookup_i_driver_test.bin"
 		var fstore *slookup_i_src.File_store_aligned
-		ret, fstore = make_file_store_aligned(log, directio, device_alignment, physical_block_size, data_block_size)
+		ret, fstore = make_file_store_aligned(log, storage_file, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
+		if ret != nil {
+			return
+		}
 		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
 
 		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
