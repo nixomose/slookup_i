@@ -53,7 +53,7 @@ func make_file_store_aligned(log *tools.Nixomosetools_logger, storage_file strin
 
 func main() {
 
-	test_basics()
+	//test_basics()
 
 	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
@@ -83,13 +83,13 @@ func main() {
 		// 	data_block_size, addressable_blocks, alignment, iopath)
 
 		var ret tools.Ret
-		var directio bool = true
+		var directio bool = false // if this is true it must be a block device not a file, because iopath will not create the file for directio
 		var device_alignment uint32 = 4096
 		var physical_block_size uint32 = 4096
 		var data_block_size uint32 = 4096
-		var storage_file = "/tmp/slookup_i_driver_test.bin"
+
 		var fstore *slookup_i_src.File_store_aligned
-		ret, fstore = make_file_store_aligned(log, storage_file, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
+		ret, fstore = make_file_store_aligned(log, testfile, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
 		if ret != nil {
 			return
 		}

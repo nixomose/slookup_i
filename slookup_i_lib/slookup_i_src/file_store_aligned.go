@@ -32,7 +32,7 @@ and we're wasting two blocks, but separation of concerns and all that, you can u
 without a backing file store and it won't need this file store header, yada yada. */
 
 const ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC uint64 = 0x5a454e4f53465331 // ZENOSFS1  zendemic object store FILE STORE 1
-const CHECK_START_BLANK_BYTES int = 4096
+const CHECK_START_BLANK_BYTES int = 4096                                         // this should  probably be physical block size but on a block device, the alisgnment will pad it out anyway  I guess.
 const SLOOKUP_FILEMODE = 0755
 const S_ISBLK uint32 = 060000 // stole from cpio
 const S_IFMT uint32 = 00170000
@@ -211,6 +211,19 @@ func (this *File_store_aligned) Init() tools.Ret {
 
 	/* Clear out the dataset file and write new blank metadata. */
 	this.log.Debug("initting file backing storage: " + this.m_store_filename)
+
+	/* this causes the file to be created if it doesn't exist, and sets up the cache for that state. */
+	var ret tools.Ret
+	var is_block_device bool = false
+	if ret, is_block_device = this.is_block_device(this.m_store_filename); ret != nil {
+		return ret
+	}
+	var notstr string = ""
+	if is_block_device == false {
+		notstr = "not "
+	}
+	this.log.Debug(this.m_store_filename, " is ", notstr, "a block devuice")
+
 	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_FILE_STORE_ALIGNED_MAGIC
 	this.m_header.M_block_size = this.m_initial_block_size
 	this.log.Debug("inital block size in bytes: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)))
@@ -246,7 +259,6 @@ func (this *File_store_aligned) Init() tools.Ret {
 	this.log.Debug("total waste percent: ", total_waste_percent)
 
 	var json string
-	var ret tools.Ret
 	ret, json = this.Get_store_information()
 	if ret != nil {
 		return ret
@@ -264,6 +276,7 @@ func (this *File_store_aligned) Init() tools.Ret {
 func (this *File_store_aligned) store_header(initting bool) tools.Ret {
 	/* everybody goes through here so we can calculate checksum */
 	// do a checksum, hash whatever of the data in the header and add it to the end.
+	// this is the file store header at absolute position zero, not the slookup header at absolution position 1
 
 	var data *[]byte
 	var ret tools.Ret
@@ -751,6 +764,12 @@ func (this *File_store_aligned) calc_user_offset(block_num uint32) uint64 {
 	return this.calc_absolute_offset(block_num + FILE_HEADER_BLOCK_OFFSET)
 }
 
+func (this *File_store_aligned) calc_user_block(block_num uint32) uint32 {
+	/* calculate the absoluste block number offset of this block num taking into account the file header block */
+
+	return block_num + FILE_HEADER_BLOCK_OFFSET
+}
+
 func (this *File_store_aligned) calc_absolute_offset(block_num uint32) uint64 {
 	/* calculate the absolute byte position offset of this block pos taking into account file_store_block_alignment */
 	// we should just store this rather than recalculating it all the time. xxxz
@@ -808,7 +827,7 @@ func (this *File_store_aligned) write_raw_data(block_num uint32, data *[]byte) t
 		 be divisible by the directio alignment. but this allows you to align to larger than 4k blocks. If you're not
 		 using directio, you can make it a prime number for all I care. */
 
-	var offset uint64 = this.calc_user_offset(block_num)
+	var offset uint64 = this.calc_absolute_offset(block_num) // start after file header.
 	var length = len(*to_write)
 	var written, err = this.m_datastore.WriteAt(*to_write, int64(offset))
 	// someday configure if we flush immediately.
@@ -832,7 +851,8 @@ func (this *File_store_aligned) Store_block_data(block_num uint32, data *[]byte)
 			"store asked to write ", len(*data), " bytes but the block size is only ", this.m_header.M_block_size)
 	}
 	// leave room for file header block
-	return this.write_raw_data(block_num+FILE_HEADER_BLOCK_OFFSET, data)
+	block_num = this.calc_user_block(block_num)
+	return this.write_raw_data(block_num, data) // the file header offset is taken care of in write_raw_data
 }
 
 // user facing function to discard a block or write zeroes over it if underlying store doesn't support discard
