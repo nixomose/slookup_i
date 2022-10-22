@@ -865,6 +865,9 @@ func (this *File_store_aligned) Discard_block(block_num uint32) tools.Ret {
 	}
 	if is_block_device {
 		// call discard on block device
+		/* keep in mind that block_num is the user's perspective for block num, if it's a file, we call
+		Store_block_data which compensates for the file header by adding one block, so whatever we call
+		to actually discard should also compensate accordingly. */
 		//xxxz
 		// return nil;
 	}
