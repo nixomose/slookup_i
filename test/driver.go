@@ -51,8 +51,7 @@ func make_file_store_aligned(log *tools.Nixomosetools_logger, storage_file strin
 	return nil, fstore
 }
 
-
- func bring_up[filename atring] [Ret, slookup_i]{
+func bring_up(filename string) (tools.Ret, *slookup_i_src.Slookup_i) {
 
 	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
@@ -63,44 +62,45 @@ func make_file_store_aligned(log *tools.Nixomosetools_logger, storage_file strin
 
 	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
 
+	var ret tools.Ret
+	var directio bool = false // if this is true it must be a block device not a file, because iopath will not create the file for directio
+	var device_alignment uint32 = 4096
+	var physical_block_size uint32 = 4096
+	var data_block_size uint32 = 4096
 
-		var ret tools.Ret
-		var directio bool = false // if this is true it must be a block device not a file, because iopath will not create the file for directio
-		var device_alignment uint32 = 4096
-		var physical_block_size uint32 = 4096
-		var data_block_size uint32 = 4096
+	var fstore *slookup_i_src.File_store_aligned
+	ret, fstore = make_file_store_aligned(log, filename, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
+	if ret != nil {
+		return ret, nil
+	}
+	var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
 
-		var fstore *slookup_i_src.File_store_aligned
-		ret, fstore = make_file_store_aligned(log, testfile, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
-		if ret != nil {
-			return ret, nil
-		}
-		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+	var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
+		addressable_blocks, block_group_count, data_block_size, total_blocks)
 
-		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
-			addressable_blocks, block_group_count, data_block_size, total_blocks)
+	return slookup.Startup(false), slookup
+}
 
- return slookup.Startup[],slookup
- }
+func bring_down(slookup *slookup_i_src.Slookup_i) tools.Ret {
 
-func bring_down[slookup]{
-
-
-
-	ret = slookup.Shutdown()
+	ret := slookup.Shutdown()
 	if ret != nil {
 		return ret
 	}
-
+	return nil
 }
-test_two_blocks filename string{
-  ret, slookup =bring_up [filename]
-/* write block 0 write block 1 erase block 0 */
 
+func test_two_blocks(filename string) tools.Ret {
+	ret, slookup := bring_up(filename)
+	if ret != nil {
+		return ret
+	}
+	/* write block 0 write block 1 erase block 0 */
 
-
-
-bring_down [slookup]
+	if ret = bring_down(slookup); ret != nil {
+		return ret
+	}
+	return nil
 }
 
 func main() {
@@ -162,7 +162,7 @@ func main() {
 		}
 	} // end init scope
 
-	test_two_blocks testfile
+	test_two_blocks(testfile)
 
 	{
 
