@@ -51,6 +51,58 @@ func make_file_store_aligned(log *tools.Nixomosetools_logger, storage_file strin
 	return nil, fstore
 }
 
+
+ func bring_up[filename atring] [Ret, slookup_i]{
+
+	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
+
+	// you can also use the file store, but the problems tend to be in slookup_i not in the physical storage.
+
+	var iopath slookup_i_src.File_store_io_path = slookup_i_src.New_file_store_io_path_default()
+	var alignment uint32 = 0
+
+	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
+
+
+		var ret tools.Ret
+		var directio bool = false // if this is true it must be a block device not a file, because iopath will not create the file for directio
+		var device_alignment uint32 = 4096
+		var physical_block_size uint32 = 4096
+		var data_block_size uint32 = 4096
+
+		var fstore *slookup_i_src.File_store_aligned
+		ret, fstore = make_file_store_aligned(log, testfile, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
+		if ret != nil {
+			return ret, nil
+		}
+		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+
+		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
+			addressable_blocks, block_group_count, data_block_size, total_blocks)
+
+ return slookup.Startup[],slookup
+ }
+
+func bring_down[slookup]{
+
+
+
+	ret = slookup.Shutdown()
+	if ret != nil {
+		return ret
+	}
+
+}
+test_two_blocks filename string{
+  ret, slookup =bring_up [filename]
+/* write block 0 write block 1 erase block 0 */
+
+
+
+
+bring_down [slookup]
+}
+
 func main() {
 
 	//test_basics()
@@ -109,6 +161,8 @@ func main() {
 			return
 		}
 	} // end init scope
+
+	test_two_blocks testfile
 
 	{
 
