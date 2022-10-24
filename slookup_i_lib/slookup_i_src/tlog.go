@@ -79,7 +79,8 @@ func (this *Tlog) Shutdown() tools.Ret {
 
 func (this *Tlog) Start_transaction() tools.Ret {
 	this.m_commit = false
-	return tools.Error(this.log, "not implemented yet")
+	return nil
+	// return tools.Error(this.log, "not implemented yet")
 }
 
 func (this *Tlog) Read_block(block_num uint32) (tools.Ret, *[]byte) {
@@ -117,16 +118,18 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	and most of the time, the lookup table entry read will be one block anyway. */
 	// end_block is not inclusive
 
+	if block_num_end-block_num_start < 1 {
+		return tools.Error(this.log, "invalid read block range request: ", block_num_start, " to ", block_num_end), nil
+	}
 	var rets = make(chan tools.Ret)
 	var alldata_lock sync.Mutex
-	var alldata *[]byte
-	*alldata = make([]byte, (block_num_end-block_num_start)*this.m_data_block_size_in_bytes)
+	var alldata []byte = make([]byte, (block_num_end-block_num_start)*this.m_data_block_size_in_bytes)
 
 	for lp := block_num_start; lp < block_num_end; lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 
-		go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+		go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, &alldata)
 	}
 
 	// wait for them all to come back. xxxz change to wait group?
@@ -138,7 +141,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 		}
 	}
 	// alldata should be filled correctly if all went well
-	return ret, alldata
+	return ret, &alldata
 }
 
 func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
@@ -244,5 +247,6 @@ func (this *Tlog) Set_commit() {
 }
 
 func (this *Tlog) End_transaction() tools.Ret {
-	return tools.Error(this.log, "not implemented yet")
+	return nil
+	// return tools.Error(this.log, "not implemented yet")
 }
