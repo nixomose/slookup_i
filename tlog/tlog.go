@@ -50,24 +50,40 @@ everything comes full circle. */
 
 type Transaction_log struct {
 	log *tools.Nixomosetools_logger
+
+	started_transaction bool
+	commit_transaction  bool
 }
 
 // verify that tlog implements tlog_interface
 var _ slookup_i_lib_interfaces.Transaction_log_interface = &Transaction_log{}
 var _ slookup_i_lib_interfaces.Transaction_log_interface = (*Transaction_log)(nil)
 
+func New_transaction_log() Transaction_log {
+	var t Transaction_log
+	t.started_transaction = false
+	t.commit_transaction = false
+	return t
+}
+
 func (this *Transaction_log) Init() tools.Ret {
-	return tools.Error(this.log, "not implemented yet.")
+	// write out the transaction log header
+	return nil
 }
 
 func (this *Transaction_log) Startup(force bool) tools.Ret { // assumes replay
+	// read transaction log off disk
 	return nil
 }
 func (this *Transaction_log) Shutdown() tools.Ret { // should not flush the last transaction if still in flight.
 	return nil
 }
 func (this *Transaction_log) Start_transaction() tools.Ret {
-	return tools.Error(this.log, "not implemented yet.")
+	if this.started_transaction != false {
+		return tools.Error(this.log, "Transaction has already been started.")
+	}
+	this.commit_transaction = false
+	return nil
 }
 
 func (this *Transaction_log) Read_block(block_num uint32) (tools.Ret, *[]byte) {
@@ -92,8 +108,15 @@ func (this *Transaction_log) Write_block_list(block_list []uint32, alldata *[]by
 }
 
 func (this *Transaction_log) Set_commit() {
+	this.commit_transaction = true
 }
 
 func (this *Transaction_log) End_transaction() tools.Ret {
-	return tools.Error(this.log, "not implemented yet.")
+	if this.commit_transaction == false {
+		// rollback
+	} else {
+		// write footer onto transaction log data
+	}
+	return nil
+	// return tools.Error(this.log, "not implemented yet.")
 }
