@@ -349,24 +349,18 @@ func (this *Slookup_i) Get_block_group_size_in_bytes() uint32 {
 		 * this is used to report to the user how much space is available to store, so it should be used in the
 		 * used/total block count * this number to denote the number of actual storable bytes. */
 
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
 	return this.m_header.M_data_block_size * this.m_header.M_block_group_count
 }
 
 func (this *Slookup_i) Get_data_block_size_in_bytes() uint32 {
 	/* this returns the number of bytes in one data block. */
 
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
 	return this.m_header.M_data_block_size
 }
 
 func (this *Slookup_i) Get_lookup_entry_size_in_bytes() uint32 {
 	/* return the size of the slookup_i entry (as it would be serialized on disk) in bytes without the value. */
 	// this never changes why are we putting a lock around it
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
 	return this.m_entry_size_cache
 }
 
@@ -375,8 +369,6 @@ func (this *Slookup_i) Get_total_blocks_count() uint32 {
 	   this isn't the number of usable data storage blocks, it's the entire thing, including the header block 0,
 		 the lookup table, the tlog, the data blocks, everything. */
 
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
 	return this.m_header.M_total_blocks
 }
 
@@ -384,8 +376,6 @@ func (this *Slookup_i) Get_lookup_table_entry_count() uint32 {
 	/* return the total number of entries in the lookup table, which is the
 	size provided by the user when they created this slookup_i definition. */
 	//this never changes why lock?
-	this.interface_lock.Lock()
-	defer this.interface_lock.Unlock()
 	return this.m_header.M_lookup_table_entry_count
 }
 
@@ -623,7 +613,10 @@ func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret 
 	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
 		return
 	}
-	if ret = this.check_lookup_table_entry_block_limits(end_block); ret != nil {
+	/* the end block is 1 + the start block so we can read a range, but to actually check the range
+	   limits, the end block we're reading must be within the range of actual lookup table blocks
+		 so we subtract one for this check */
+	if ret = this.check_lookup_table_entry_block_limits(end_block - 1); ret != nil {
 		return
 	}
 	if ret, alldata = this.m_transaction_log_storage.Read_block_range(start_block, end_block); ret != nil {
@@ -1313,14 +1306,26 @@ func (this *Slookup_i) deallocate() tools.Ret {
 	return nil
 }
 
+// this is a handy call to discard for a block which writes zero data which causes allocated block_group data to be deleted for that block */
+
+func (this *Slookup_i) Discard(block_num uint32) tools.Ret {
+	return this.Write(block_num, nil)
+}
+
 // this is a main entrypoint for zosbd2_slookup_i backing_store
 
 func (this *Slookup_i) Write(block_num uint32, new_value *[]byte) tools.Ret {
 	/* this function will write a block. */
+	/* this is not where the transaction should be I think. it should be higher up so a large multiblock write can all be in one transaction.
+	   then again, each block write should yield a transaction's worth of idempotent log information, because a write can shrink a block and
+		 cause deletes and so on, so a transaction for a single block write is still useful. we could do better though. */
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
 
-	this.m_transaction_log_storage.Start_transaction()
+	var ret tools.Ret
+	if ret = this.m_transaction_log_storage.Start_transaction(); ret != nil {
+		return ret
+	}
 	defer this.m_transaction_log_storage.End_transaction()
 	if ret := this.write_internal(block_num, new_value); ret != nil {
 		return ret
