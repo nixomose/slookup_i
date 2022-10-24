@@ -55,18 +55,12 @@ func bring_up(filename string) (tools.Ret, *slookup_i_src.Slookup_i) {
 
 	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
-	// you can also use the file store, but the problems tend to be in slookup_i not in the physical storage.
-
-	var iopath slookup_i_src.File_store_io_path = slookup_i_src.New_file_store_io_path_default()
-	var alignment uint32 = 0
-
 	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
 
 	var ret tools.Ret
 	var directio bool = false // if this is true it must be a block device not a file, because iopath will not create the file for directio
 	var device_alignment uint32 = 4096
 	var physical_block_size uint32 = 4096
-	var data_block_size uint32 = 4096
 
 	var fstore *slookup_i_src.File_store_aligned
 	ret, fstore = make_file_store_aligned(log, filename, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
@@ -90,12 +84,46 @@ func bring_down(slookup *slookup_i_src.Slookup_i) tools.Ret {
 	return nil
 }
 
+func make_block_data(val byte, data_block_size uint32) *[]byte {
+	// make a block of data
+	var value_type = make([]byte, 0)
+	var dot = make([]byte, 1)
+
+	dot[0] = val
+	var n uint32
+	for n < data_block_size {
+		value_type = append(value_type[:], dot...)
+		val++
+		dot[0] = val
+		n++
+	}
+	return &value_type
+}
+
 func test_two_blocks(filename string) tools.Ret {
 	ret, slookup := bring_up(filename)
 	if ret != nil {
 		return ret
 	}
+
 	/* write block 0 write block 1 erase block 0 */
+	var data_block_size, _, _, _ = get_init_params()
+
+	var data *[]byte
+	data = make_block_data(0x21, data_block_size) // A
+
+	if ret = slookup.Write(0, data); ret != nil {
+		return ret
+	}
+
+	data = make_block_data(0x22, data_block_size) // B
+	if ret = slookup.Write(1, data); ret != nil {
+		return ret
+	}
+
+	if ret = slookup.Discard(0); ret != nil {
+		return ret
+	}
 
 	if ret = bring_down(slookup); ret != nil {
 		return ret
@@ -109,21 +137,9 @@ func main() {
 
 	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
-	// you can also use the file store, but the problems tend to be in slookup_i not in the physical storage.
-
-	var iopath slookup_i_src.File_store_io_path = slookup_i_src.New_file_store_io_path_default()
-	var alignment uint32 = 0
-
 	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
 
-	var value_type = make([]byte, 0)
-	var dot = make([]byte, 1)
-	dot[0] = 0x21
-	var n uint32
-	for n < data_block_size {
-		value_type = append(value_type[:], dot...)
-		n++
-	}
+	// value_type := make_block_data(0x21, data_block_size)
 
 	var testfile = "/tmp/fstore"
 	os.Remove(testfile)
@@ -138,7 +154,6 @@ func main() {
 		var directio bool = false // if this is true it must be a block device not a file, because iopath will not create the file for directio
 		var device_alignment uint32 = 4096
 		var physical_block_size uint32 = 4096
-		var data_block_size uint32 = 4096
 
 		var fstore *slookup_i_src.File_store_aligned
 		ret, fstore = make_file_store_aligned(log, testfile, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
@@ -164,27 +179,27 @@ func main() {
 
 	test_two_blocks(testfile)
 
-	{
+	// {
 
-		var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
-			data_block_size, addressable_blocks, alignment, iopath)
+	// 	var fstore *slookup_i_src.File_store_aligned = slookup_i_src.New_File_store_aligned(log, testfile,
+	// 		data_block_size, addressable_blocks, alignment, iopath)
 
-		test_4k(log, fstore, &iopath, alignment)
+	// 	test_4k(log, fstore, &iopath, alignment)
 
-	}
+	// }
 
-	{
-		// test everything again with a memory store.
-		var ret tools.Ret
-		var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
-		mstore.Init()
-		var tlog = slookup_i_src.New_Tlog(log, mstore, data_block_size, total_blocks)
-		if ret = tlog.Startup(false); ret != nil {
-			return
-		}
+	// {
+	// 	// test everything again with a memory store.
+	// 	var ret tools.Ret
+	// 	var mstore *slookup_i_src.Memory_store = slookup_i_src.New_memory_store(log)
+	// 	mstore.Init()
+	// 	var tlog = slookup_i_src.New_Tlog(log, mstore, data_block_size, total_blocks)
+	// 	if ret = tlog.Startup(false); ret != nil {
+	// 		return
+	// 	}
 
-		test_4k(log, mstore, &iopath, alignment)
-	}
+	// 	test_4k(log, mstore, &iopath, alignment)
+	// }
 
 }
 
