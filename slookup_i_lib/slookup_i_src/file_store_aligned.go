@@ -448,7 +448,7 @@ func (this *File_store_aligned) Is_backing_store_uninitialized() (tools.Ret, boo
 	return nil, true
 }
 
-func (this *File_store_aligned) load_header_and_check_magic(check_device_params bool) tools.Ret {
+func (this *File_store_aligned) load_file_header_and_check_magic(check_device_params bool) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
@@ -456,7 +456,7 @@ func (this *File_store_aligned) load_header_and_check_magic(check_device_params 
 	var bytes_read uint32
 	var data []byte
 	var ret tools.Ret
-	ret, data = this.Read_raw_data(0)
+	ret, data = this.Read_raw_data(0) // this is absolute block zero where the file header is.
 	if ret != nil {
 		return ret
 	}
@@ -593,7 +593,7 @@ func (this *File_store_aligned) Startup(force bool) tools.Ret {
 	/* return error if no good, we do not check for uninit here
 	   startup assumes it's been initted already. */
 
-	ret = this.load_header_and_check_magic(true) // check device params passed in from cmd line or catalog
+	ret = this.load_file_header_and_check_magic(true) // check device params passed in from cmd line or catalog
 	if ret != nil {
 		return ret
 	}
@@ -696,7 +696,7 @@ func (this *File_store_aligned) Read_raw_data(block_num uint32) (tools.Ret, []by
 	do any math on it.  since we only ever read one block at a time (hmmm...) we won't have to worry about there
 	being gaps in the data */
 
-	var offset uint64 = this.calc_user_offset(block_num)
+	var offset uint64 = this.calc_absolute_offset(block_num)
 	var length uint32 = this.m_initial_block_size             // this has to be initial_block size for the read of the header to see if the header matches
 	var bresp []byte = this.m_iopath.AllocBuffer(int(length)) // we offset block writes for alignment, but we only actually have to read our block size
 	var bytes_read, err = this.m_datastore.ReadAt(bresp, int64(offset))
@@ -745,7 +745,9 @@ func (this *File_store_aligned) Load_block_data(block_num uint32) (tools.Ret, *[
 		we're going to actually get them block 1. */
 	var bresp []byte
 	var ret tools.Ret
-	ret, bresp = this.Read_raw_data(block_num + FILE_HEADER_BLOCK_OFFSET)
+	// leave room for file header block
+	block_num = this.calc_user_block(block_num)
+	ret, bresp = this.Read_raw_data(block_num)
 
 	if ret != nil {
 		return ret, nil
