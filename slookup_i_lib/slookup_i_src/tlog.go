@@ -125,7 +125,8 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	var alldata_lock sync.Mutex
 	var alldata []byte = make([]byte, (block_num_end-block_num_start)*this.m_data_block_size_in_bytes)
 
-	for lp := block_num_start; lp < block_num_end; lp++ {
+	var lp uint32
+	for lp = 0; lp < block_num_end-block_num_start; lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 
