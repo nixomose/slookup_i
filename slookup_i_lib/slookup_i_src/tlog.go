@@ -130,7 +130,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 
-		go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, &alldata)
+		go this.read_into_buffer(rets, block_num_start+lp, destposstart, destposend, &alldata_lock, &alldata)
 	}
 
 	// wait for them all to come back. xxxz change to wait group?

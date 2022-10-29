@@ -112,16 +112,16 @@ func test_two_blocks(filename string) tools.Ret {
 	var data *[]byte
 	data = make_block_data(0x21, data_block_size) // A
 
-	if ret = slookup.Write(0, data); ret != nil {
+	if ret = slookup.Write(42, data); ret != nil {
 		return ret
 	}
 
 	data = make_block_data(0x22, data_block_size) // B
-	if ret = slookup.Write(1, data); ret != nil {
+	if ret = slookup.Write(43, data); ret != nil {
 		return ret
 	}
 
-	if ret = slookup.Discard(0); ret != nil {
+	if ret = slookup.Discard(42); ret != nil {
 		return ret
 	}
 

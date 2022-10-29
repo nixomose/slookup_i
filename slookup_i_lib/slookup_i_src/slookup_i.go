@@ -488,8 +488,6 @@ func (this *Slookup_i) Get_first_data_block_start_block() uint32 {
 func (this *Slookup_i) Get_block_group_count() uint32 {
 	/* this just returns the value in the header, the number of entries in the block_group array */
 
-	this.interface_lock.Lock() // revisit why we're locking this.
-	defer this.interface_lock.Unlock()
 	return this.m_header.M_block_group_count
 }
 
@@ -595,18 +593,22 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 /* The stores
    and gets */
 
-func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_pos uint32, start_block uint32,
+func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_byte_pos uint32, start_block uint32,
 	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
 
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
 	so we might have to concatenate. something we'll have to fix with goroutines someday.
 	oh look, we did goroutines already.
-	start block is the first block, end block is the number after the last block, as in end block is not inclusive. */
+	start block is the first block, end block is the number after the last block, as in end block is not inclusive.
+	so we return all the stuff we calculated in case the caller is interested, and the alldata we return is
+	all of the data from all of the blocks that made up the entry request. So if the entry lives in one block
+	it returns the data for that block, if the entry spills over the boundary of two blocks, then it returns
+	two blocks of data, and finally it returns the position of the entry within this buffer. */
 
-	start_pos = block_num * this.Get_lookup_entry_size_in_bytes()
-	start_block = (start_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
+	start_byte_pos = block_num * this.Get_lookup_entry_size_in_bytes()
+	start_block = (start_byte_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
 
-	end_pos = start_pos + this.Get_lookup_entry_size_in_bytes()
+	end_pos = start_byte_pos + this.Get_lookup_entry_size_in_bytes()
 	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
 	end_block += 1 // end_block is one higher than the one we want to read
 
@@ -623,8 +625,9 @@ func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret 
 		return
 	}
 
-	// get the position of this entry in this alldata, modulo works here too...
-	start_offset = start_pos - (start_block * this.Get_data_block_size_in_bytes())
+	/* get the position of this entry in this alldata. start pos is beginning of alldata, we just have to find the offset
+	   which we can do by getting the remainder of the start pos to the block boundary whiche we read. */
+	start_offset = start_byte_pos % (start_block * this.Get_data_block_size_in_bytes())
 	return
 
 	// this is all in tlog now.
@@ -699,6 +702,11 @@ func (this *Slookup_i) Lookup_entry_store(block_num uint32, entry *slookup_i_lib
 	   so we have to lock this entire event */
 	this.interface_lock.Lock()
 	defer this.interface_lock.Unlock()
+	return this.lookup_entry_store_internal(block_num, entry)
+}
+
+func (this *Slookup_i) lookup_entry_store_internal(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
+	/* internal version of above that doesn't lock the interface look for internal callers who have already locked it */
 
 	var ret = this.check_lookup_table_limits(block_num)
 	if ret != nil {
@@ -1094,7 +1102,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 			}
 			// write entry to disk so it is correct on disk since nobody else is going to do it later.
-			if ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry); ret != nil {
+			if ret = this.lookup_entry_store_internal(entry.Get_entry_pos(), entry); ret != nil {
 				return nil
 			}
 
