@@ -968,6 +968,13 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 
 func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_i_lib_entry.Slookup_i_entry, new_value *[]byte) tools.Ret {
 	/* this handles group block writes which might involve growing or shrinking the block_group_list. */
+
+	var ret tools.Ret
+	ret = entry.Set_value(new_value) // we set this right away in the entry so whoever serializes this entry will have the correct value length
+	if ret != nil {
+		return ret
+	}
+
 	// get a count of how many offspring there are now in mother node
 	var current_block_group_count uint32 = entry.Count_offspring()
 
@@ -975,7 +982,6 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	var new_value_length uint32 = uint32(len(*new_value))
 
 	var block_group_count_required uint32
-	var ret tools.Ret
 	ret, block_group_count_required = this.calculate_block_group_count_for_value(new_value_length)
 	if ret != nil {
 		return ret
@@ -1101,6 +1107,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 					tools.Uint32tostring(rp) + " in entry block_group array list.")
 
 			}
+
 			// write entry to disk so it is correct on disk since nobody else is going to do it later.
 			if ret = this.lookup_entry_store_internal(entry.Get_entry_pos(), entry); ret != nil {
 				return nil
@@ -1132,10 +1139,6 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 	if new_value_length == 0 { // unless of course it's empty
 		this.log.Debug("new value length is zero.")
-		var ret = entry.Set_value(new_value)
-		if ret != nil {
-			return ret
-		}
 		/* this is intersting we used to have one function to update the node list and the data
 		now we need two. except we actually updated the entry, we just haven't written it to disk yet.
 		so we write that to disk and then we just have to actually write the data blocks */
