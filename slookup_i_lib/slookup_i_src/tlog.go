@@ -121,7 +121,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	if block_num_end-block_num_start < 1 {
 		return tools.Error(this.log, "invalid read block range request: ", block_num_start, " to ", block_num_end), nil
 	}
-	var rets = make(chan tools.Ret)
+	var rets = make(chan tools.Ret, block_num_end-block_num_start) // must be buffered for case where we're not using go routines
 	var alldata_lock sync.Mutex
 	var alldata []byte = make([]byte, (block_num_end-block_num_start)*this.m_data_block_size_in_bytes)
 
@@ -157,7 +157,7 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
 	/* like above, but it gets a list of blocks. returns the data in the byte array */
 
-	var rets = make(chan tools.Ret)
+	var rets = make(chan tools.Ret, len(block_list))
 	var alldata_lock sync.Mutex
 	var alldata *[]byte
 	*alldata = make([]byte, uint32(len(block_list))*this.m_data_block_size_in_bytes)
@@ -167,14 +167,15 @@ func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
 		parallel = true
 	}
 
-	var lp uint32
-	for lp = 0; lp < uint32(len(block_list)); lp++ {
-		var destposstart = lp * this.m_data_block_size_in_bytes
+	var lp uint
+	var block_num uint32
+	for lp, block_num = range block_list {
+		var destposstart = uint32(lp) * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 		if parallel {
-			go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+			go this.read_into_buffer(rets, block_num, destposstart, destposend, &alldata_lock, alldata)
 		} else {
-			this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+			this.read_into_buffer(rets, block_num, destposstart, destposend, &alldata_lock, alldata)
 			var ret2 = <-rets
 			return ret2, alldata // success or failure
 		}
@@ -216,7 +217,7 @@ func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32
 	// end_block is not inclusive
 	// if alldata is null, write zeros
 
-	var rets = make(chan tools.Ret)
+	var rets = make(chan tools.Ret, block_num_end-block_num_start)
 	var alldata_lock sync.Mutex
 
 	var parallel bool = false
@@ -224,13 +225,15 @@ func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32
 		parallel = true
 	}
 
-	for lp := block_num_start; lp < block_num_end; lp++ {
+	var lp uint32
+	for lp = 0; lp < block_num_end-block_num_start; lp++ {
+		// the position in the alldata array to write
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 		if parallel {
-			go this.write_from_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+			go this.write_from_buffer(rets, block_num_start+lp, destposstart, destposend, &alldata_lock, alldata)
 		} else {
-			this.write_from_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+			this.write_from_buffer(rets, block_num_start+lp, destposstart, destposend, &alldata_lock, alldata)
 			var ret2 = <-rets
 			return ret2 // success or failure
 		}
@@ -251,7 +254,7 @@ func (this *Tlog) Write_block_list(block_list []uint32, alldata *[]byte) tools.R
 	/* same like above but for random blocks in the block_list
 	call write single block in parallel getting the data from slices of alldata. */
 
-	var rets = make(chan tools.Ret)
+	var rets = make(chan tools.Ret, len(block_list))
 	var alldata_lock sync.Mutex
 
 	var parallel bool = false
