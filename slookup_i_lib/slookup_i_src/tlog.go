@@ -201,14 +201,21 @@ func (this *Tlog) Write_block(block_num uint32, n *[]byte) tools.Ret {
 
 func (this *Tlog) write_from_buffer(rets chan<- tools.Ret, block_num uint32, destposstart uint32, destposend uint32,
 	alldata_lock *sync.Mutex, alldata *[]byte) {
+
+	alldata_lock.Lock()
 	var data []byte
 	if alldata == nil {
 		data = make([]byte, this.m_data_block_size_in_bytes)
 	} else {
 		data = (*alldata)[destposstart:destposend]
 	}
+	alldata_lock.Unlock() // just block concurrent access to alldata
+	/* data is a slice view into alldata, but it's only being read from by write_block and different go routines
+	   are going to be reading unrelated sections of alldata, a given thread will only read the section this
+		 thread wrote to. I would think this is legit and okay in go. I'm sorta wondering why I have to lock alldata
+		 at all since each thread will only touch its own part, but perhaps if a thread were to change the size of alldata
+		 that would mess up multithreading, but that doesn't happen here. I need to learn a bit more go I think. */
 	var ret = this.Write_block(block_num, &data)
-	alldata_lock.Unlock()
 	rets <- ret
 }
 
