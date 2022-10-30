@@ -675,6 +675,7 @@ func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret 
 func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_i_lib_entry.Slookup_i_entry) {
 	/* read only the lookup entry for a block num.
 	this function can't read transaction log blocks, or data blocks. */
+	// xxxz this should probably interface lock and have a lookup_entry_load_internal to not lock
 	var ret = this.check_lookup_table_limits(block_num)
 	if ret != nil {
 		return ret, nil
@@ -763,6 +764,7 @@ func (this *Slookup_i) Data_block_store(entry *slookup_i_lib_entry.Slookup_i_ent
 	var alldata *[]byte = entry.Get_value()
 
 	// var actual_count = entry.Get_block_group_length() // this is how many are allocated, not/<= block_group_count
+xxxxz above is correct, we need to only write the block list of allocated blocks not all 5 with zeros.
 	var block_list []uint32 = *entry.Get_block_group_list()
 	ret = this.m_transaction_log_storage.Write_block_list(block_list, alldata)
 	if ret != nil {
@@ -888,7 +890,7 @@ func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_sto
 	if ret = entry.Set_reverse_lookup_pos(reverse_lookup_entry_pos, reverse_lookup_entry_num); ret != nil {
 		return ret
 	}
-	if ret = this.Lookup_entry_store(reverse_lookup_entry_num, entry); ret != nil {
+	if ret = this.lookup_entry_store_internal(reverse_lookup_entry_num, entry); ret != nil {
 		return ret
 	}
 	return nil
