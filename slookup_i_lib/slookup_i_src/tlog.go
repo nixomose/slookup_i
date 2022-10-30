@@ -125,12 +125,21 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 	var alldata_lock sync.Mutex
 	var alldata []byte = make([]byte, (block_num_end-block_num_start)*this.m_data_block_size_in_bytes)
 
+	var parallel bool = false
+	if block_num_end-block_num_start > 1 {
+		parallel = true
+	}
 	var lp uint32
 	for lp = 0; lp < block_num_end-block_num_start; lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
-
-		go this.read_into_buffer(rets, block_num_start+lp, destposstart, destposend, &alldata_lock, &alldata)
+		if parallel {
+			go this.read_into_buffer(rets, block_num_start+lp, destposstart, destposend, &alldata_lock, &alldata)
+		} else {
+			this.read_into_buffer(rets, block_num_start+lp, destposstart, destposend, &alldata_lock, &alldata)
+			var ret2 = <-rets
+			return ret2, &alldata // success or failure
+		}
 	}
 
 	// wait for them all to come back. xxxz change to wait group?
@@ -153,12 +162,22 @@ func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
 	var alldata *[]byte
 	*alldata = make([]byte, uint32(len(block_list))*this.m_data_block_size_in_bytes)
 
+	var parallel bool = false
+	if len(block_list) > 1 {
+		parallel = true
+	}
+
 	var lp uint32
 	for lp = 0; lp < uint32(len(block_list)); lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
-
-		go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+		if parallel {
+			go this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+		} else {
+			this.read_into_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+			var ret2 = <-rets
+			return ret2, alldata // success or failure
+		}
 	}
 
 	// wait for them all to come back.
@@ -200,11 +219,21 @@ func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32
 	var rets = make(chan tools.Ret)
 	var alldata_lock sync.Mutex
 
+	var parallel bool = false
+	if block_num_end-block_num_start > 1 {
+		parallel = true
+	}
+
 	for lp := block_num_start; lp < block_num_end; lp++ {
 		var destposstart = lp * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
-
-		go this.write_from_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+		if parallel {
+			go this.write_from_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+		} else {
+			this.write_from_buffer(rets, lp, destposstart, destposend, &alldata_lock, alldata)
+			var ret2 = <-rets
+			return ret2 // success or failure
+		}
 	}
 
 	// wait for them all to come back.
@@ -225,14 +254,24 @@ func (this *Tlog) Write_block_list(block_list []uint32, alldata *[]byte) tools.R
 	var rets = make(chan tools.Ret)
 	var alldata_lock sync.Mutex
 
+	var parallel bool = false
+	if len(block_list) > 1 {
+		parallel = true
+	}
 	for lp, block_num := range block_list {
 		var destposstart = uint32(lp) * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 
-		go this.write_from_buffer(rets, block_num, destposstart, destposend, &alldata_lock, alldata)
+		if parallel {
+			go this.write_from_buffer(rets, block_num, destposstart, destposend, &alldata_lock, alldata)
+		} else {
+			this.write_from_buffer(rets, block_num, destposstart, destposend, &alldata_lock, alldata)
+			var ret2 = <-rets
+			return ret2 // success or failure
+		}
 	}
 
-	// wait for them all to come back.
+	// wait for them all to come back if there was more than 1
 	var ret tools.Ret = nil
 	for wait := 0; wait < len(block_list); wait++ {
 		var ret2 = <-rets
