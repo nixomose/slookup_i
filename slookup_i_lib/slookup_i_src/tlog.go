@@ -167,7 +167,7 @@ func (this *Tlog) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
 		parallel = true
 	}
 
-	var lp uint
+	var lp int
 	var block_num uint32
 	for lp, block_num = range block_list {
 		var destposstart = uint32(lp) * this.m_data_block_size_in_bytes
