@@ -46,6 +46,10 @@ type Slookup_i_entry struct {
 	 */
 	block_group_count uint32    // how many elements in the block_group array, always fully allocated to max for block_group size
 	block_group_list  *[]uint32 // can't be nil, this is the array of size block_group_count
+	/* to be clear, this array is always maxed out in allocation. what determines how full it is, is where the zeroes
+	are. since we're going to be writing this to an entry, we need all array elements allocated and not junk, so
+	this array will have trailing zeros to denote a not-full list, and if all entries are non-zero then all are full.
+	but something like 24-67-0-23-14 is illegal. once you hit a zero, that's the end of the list. */
 
 	/* when this is serialized, we store its length so each node knows exactly how much data it actually stored in its data block,
 	as in, all data_blocks are full except the last one and the length of that one can be determined by length mod data_block_size.
@@ -108,7 +112,7 @@ func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_valu
 	 * This is the offspring array size, which does not include the space we can also use in the mother node. */
 	// this really can't be zero.
 	n.block_group_count = Block_group_count
-	var v []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero (not sure this is correct, I think this should be sized to the data it holds, there should be no trailing zeroes)
+	var v []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
 	n.block_group_list = &v
 	var r []uint32 = make([]uint32, Block_group_count) // array is fully allocated but set all to zero
 	n.data_block_reverse_lookup_list = &r
@@ -170,9 +174,19 @@ func (this *Slookup_i_entry) Get_block_group_list() *[]uint32 {
 	return this.block_group_list
 }
 
-func (this *Slookup_i_entry) Get_block_group_length() uint32 {
-	/* return the size of the block_group array. */
-	return uint32(len(*this.block_group_list))
+func (this *Slookup_i_entry) Get_block_group_lengthxxxz() uint32 {
+	/* return the number of non-zero elements in the block_group_list array. the array is always allocated to its max
+	size, but how many elements are used is defined by where the first zero is. */
+	var retpos uint32 = 0
+	var val uint32 = 0
+	// xxxz obviously caching this would be a better idea
+	for _, val = range *this.block_group_list {
+		if val == 0 {
+			break
+		}
+		retpos++
+	}
+	return retpos
 }
 
 func (this *Slookup_i_entry) Get_value_length() uint32 {
@@ -197,9 +211,12 @@ func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.
 		return tools.Error(this.log, "trying to get block_group_pos ", block_group_pos,
 			" which is greater than the block_group count ", this.block_group_count), 0
 	}
-	if block_group_pos > uint32(len(*this.block_group_list)) {
+
+	/* this is a data-caused error, nobody should be asking for a position in the block_group_list
+	for an entry that is outside of the range of data stored in the entry. */
+	if block_group_pos > this.Get_block_group_lengthxxxz() {
 		return tools.Error(this.log, "trying to get block_group pos ", block_group_pos,
-			" which is greater than the block_group list array length ", len(*this.block_group_list)), 0
+			" which is greater than the block_group list array length ", this.Get_block_group_lengthxxxz()), 0
 	}
 	return nil, (*this.block_group_list)[block_group_pos]
 }
@@ -210,10 +227,13 @@ func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_bl
 		return tools.Error(this.log, "trying to set block_group  pos ", block_group_pos,
 			" which is greater than the number of blocks in the block_group ", this.block_group_count)
 	}
-	if block_group_pos > uint32(len(*this.block_group_list)) {
-		return tools.Error(this.log, "trying to set block_group pos ", block_group_pos,
-			" which is greater than the block_group list array length ", len(*this.block_group_list))
-	}
+	/* now this is okay, we should be able to store larger-than-currentl-exists data in the
+	block_group_list, the caller must be aware of what's going on and write zeros to the end if they're
+	shrinking the number of blocks in the entry */
+	// if block_group_pos > uint32(len(*this.block_group_list)) {
+	// 	return tools.Error(this.log, "trying to set block_group pos ", block_group_pos,
+	// 		" which is greater than the block_group list array length ", len(*this.block_group_list))
+	// }
 	(*this.block_group_list)[block_group_pos] = data_block
 	return nil
 }
@@ -333,17 +353,20 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 	return nil
 }
 
-func (this *Slookup_i_entry) Count_offspring() uint32 {
+// func (this *Slookup_i_entry) Count_offspring() uint32 {
 
-	var rp int // make this faster xxxz
-	// by using the size of the array, not padding out to block_group_count and filling with zeroes, that's dumb. fix that xxxz
-	for rp = 0; rp < len(*this.block_group_list); rp++ {
-		if (*this.block_group_list)[rp] == 0 {
-			return uint32(rp)
-		}
-	}
-	return uint32(len(*this.block_group_list)) // if they're all full, then there are as many as there are array elements
-}
+// 	// remove this function
+// 	return this.Get_block_group_lengthxxxz()
+
+// 	// var rp int // make this faster xxxz
+// 	// // by using the size of the array, not padding out to block_group_count and filling with zeroes, that's dumb. fix that xxxz
+// 	// for rp = 0; rp < len(*this.block_group_list); rp++ {
+// 	// 	if (*this.block_group_list)[rp] == 0 {
+// 	// 		return uint32(rp)
+// 	// 	}
+// 	// }
+// 	// return uint32(len(*this.block_group_list)) // if they're all full, then there are as many as there are array elements
+// }
 
 // this was implemented directly in the slookup_i reverse lookup function
 // func (this *Slookup_i_entry) Find_data_block_in_data_block_lookup_list(data_block uint32) (tools.Ret, uint32) {

@@ -751,7 +751,10 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	var alldata *[]byte
 
 	var block_list []uint32 = *entry.Get_block_group_list()
-	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list) // absolute block position
+	var block_list_length = entry.Get_block_group_lengthxxxz()
+
+	// xxxz this must know to only read up to the number of allocated blocks, not the entire array
+	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list, block_list_length) // absolute block position
 	if ret != nil {
 		return ret, nil
 	}
@@ -759,14 +762,16 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 }
 
 func (this *Slookup_i) Data_block_store(entry *slookup_i_lib_entry.Slookup_i_entry) tools.Ret {
-	/* write the actaul data blocks from the value in this entry, into the blocks in the block_group array */
+	/* write the actual data blocks from the value in this entry, into the blocks in the block_group array */
 	var ret tools.Ret
 	var alldata *[]byte = entry.Get_value()
 
 	// var actual_count = entry.Get_block_group_length() // this is how many are allocated, not/<= block_group_count
-xxxxz above is correct, we need to only write the block list of allocated blocks not all 5 with zeros.
+// xxxxz above is correct, we need to only write the block list of allocated blocks not all 5 with zeros.
 	var block_list []uint32 = *entry.Get_block_group_list()
-	ret = this.m_transaction_log_storage.Write_block_list(block_list, alldata)
+	var block_list_length = entry.Get_block_group_lengthxxxz()
+	// same thing, only write allocated blocks not entire block_group_list array
+	ret = this.m_transaction_log_storage.Write_block_list(block_list, block_list_length, alldata)
 	if ret != nil {
 		return ret
 	}
@@ -926,7 +931,9 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 
 	// now look through it's block_group list looking for data_block
 	var rp uint32
-	for rp = 0; rp < entry.Get_block_group_length(); rp++ {
+var block_group_list_length = entry.Get_block_group_lengthxxxz()
+
+	for rp = 0; rp < block_group_list_length; rp++ {
 		var block_group_pos_value uint32
 		if ret, block_group_pos_value = entry.Get_block_group_pos(rp); ret != nil {
 			return ret, nil, 0
@@ -978,7 +985,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	}
 
 	// get a count of how many offspring there are now in mother node
-	var current_block_group_count uint32 = entry.Count_offspring()
+	var current_block_group_count uint32 = entry.Get_block_group_lengthxxxz()
 
 	// figure out how many nodes we need to store this write.
 	var new_value_length uint32 = uint32(len(*new_value))
