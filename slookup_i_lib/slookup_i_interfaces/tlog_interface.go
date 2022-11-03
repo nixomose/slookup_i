@@ -26,11 +26,11 @@ type Transaction_log_interface interface {
 
 	Read_block_list(block_list []uint32, block_list_length uint32) (tools.Ret, *[]byte)
 
-	Write_block(block_num uint32, block_list_length uint32, n *[]byte) tools.Ret
+	Write_block(block_num uint32, n *[]byte) tools.Ret
 
 	Write_block_range(start_block uint32, end_block uint32, alldata *[]byte) tools.Ret
 
-	Write_block_list(block_list []uint32, alldata *[]byte) tools.Ret
+	Write_block_list(block_list []uint32, block_list_length uint32, alldata *[]byte) tools.Ret
 
 	Set_commit()
 
