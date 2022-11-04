@@ -163,7 +163,7 @@ func (this *Tlog) Read_block_list(block_list []uint32, block_list_length uint32)
 	*alldata = make([]byte, block_list_length*this.m_data_block_size_in_bytes)
 
 	var parallel bool = false
-	if len(block_list) > 1 {
+	if block_list_length > 1 {
 		parallel = true
 	}
 
@@ -183,7 +183,7 @@ func (this *Tlog) Read_block_list(block_list []uint32, block_list_length uint32)
 
 	// wait for them all to come back.
 	var ret tools.Ret = nil
-	for wait := 0; wait < len(block_list); wait++ {
+	for wait := 0; wait < int(block_list_length); wait++ {
 		var ret2 = <-rets
 		if ret2 != nil {
 			ret = ret2
@@ -266,7 +266,7 @@ func (this *Tlog) Write_block_list(block_list []uint32, block_list_length uint32
 	var alldata_lock sync.Mutex
 
 	var parallel bool = false
-	if len(block_list) > 1 {
+	if block_list_length > 1 {
 		parallel = true
 	}
 	var lp uint32
@@ -287,7 +287,7 @@ func (this *Tlog) Write_block_list(block_list []uint32, block_list_length uint32
 
 	// wait for them all to come back if there was more than 1
 	var ret tools.Ret = nil
-	for wait := 0; wait < len(block_list); wait++ {
+	for wait := 0; wait < int(block_list_length); wait++ {
 		var ret2 = <-rets
 		if ret2 != nil {
 			ret = ret2
