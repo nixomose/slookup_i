@@ -93,7 +93,7 @@ func (this *Transaction_log) Read_block(block_num uint32) (tools.Ret, *[]byte) {
 func (this *Transaction_log) Read_block_range(block_num_start uint32, block_num_end uint32) (tools.Ret, *[]byte) {
 	return tools.Error(this.log, "not implemented yet."), nil
 }
-func (this *Transaction_log) Read_block_list(block_list []uint32) (tools.Ret, *[]byte) {
+func (this *Transaction_log) Read_block_list(block_list []uint32, block_list_length uint32) (tools.Ret, *[]byte) {
 	return tools.Error(this.log, "not implemented yet."), nil
 }
 func (this *Transaction_log) Write_block(block_num uint32, n *[]byte) tools.Ret {
@@ -103,7 +103,7 @@ func (this *Transaction_log) Write_block_range(start_block uint32, end_block uin
 	return tools.Error(this.log, "not implemented yet.")
 }
 
-func (this *Transaction_log) Write_block_list(block_list []uint32, alldata *[]byte) tools.Ret {
+func (this *Transaction_log) Write_block_list(block_list []uint32, block_list_length uint32, alldata *[]byte) tools.Ret {
 	return tools.Error(this.log, "not implemented yet.")
 }
 

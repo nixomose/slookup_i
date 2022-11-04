@@ -156,20 +156,20 @@ func (this *Tlog) Read_block_range(block_num_start uint32, block_num_end uint32)
 
 func (this *Tlog) Read_block_list(block_list []uint32, block_list_length uint32) (tools.Ret, *[]byte) {
 	/* like above, but it gets a list of blocks. returns the data in the byte array */
- xxxz this must know to only read up to the number of allocated blocks, not the entire array
+	// this must know to only read up to the number of allocated blocks, not the entire array
 	var rets = make(chan tools.Ret, len(block_list))
 	var alldata_lock sync.Mutex
 	var alldata *[]byte
-	*alldata = make([]byte, uint32(len(block_list))*this.m_data_block_size_in_bytes)
+	*alldata = make([]byte, block_list_length*this.m_data_block_size_in_bytes)
 
 	var parallel bool = false
 	if len(block_list) > 1 {
 		parallel = true
 	}
 
-	var lp int
-	var block_num uint32
-	for lp, block_num = range block_list {
+	var lp uint32
+	for lp = 0; lp < block_list_length; lp++ {
+		var block_num uint32 = block_list[lp]
 		var destposstart = uint32(lp) * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 		if parallel {
@@ -260,16 +260,19 @@ func (this *Tlog) Write_block_range(block_num_start uint32, block_num_end uint32
 func (this *Tlog) Write_block_list(block_list []uint32, block_list_length uint32, alldata *[]byte) tools.Ret {
 	/* same like above but for random blocks in the block_list
 	call write single block in parallel getting the data from slices of alldata. */
-xxxz
-	var block_group_list_length = entry.
-	var rets = make(chan tools.Ret, len(block_list))
+
+	// xxxz change this to a wait group
+	var rets = make(chan tools.Ret, block_list_length)
 	var alldata_lock sync.Mutex
 
 	var parallel bool = false
 	if len(block_list) > 1 {
 		parallel = true
 	}
-	for lp, block_num := range block_list {
+	var lp uint32
+
+	for lp = 0; lp < block_list_length; lp++ {
+		var block_num uint32 = block_list[lp]
 		var destposstart = uint32(lp) * this.m_data_block_size_in_bytes
 		var destposend = destposstart + this.m_data_block_size_in_bytes
 
