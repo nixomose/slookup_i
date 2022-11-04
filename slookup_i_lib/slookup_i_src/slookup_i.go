@@ -767,7 +767,7 @@ func (this *Slookup_i) Data_block_store(entry *slookup_i_lib_entry.Slookup_i_ent
 	var alldata *[]byte = entry.Get_value()
 
 	// var actual_count = entry.Get_block_group_length() // this is how many are allocated, not/<= block_group_count
-// xxxxz above is correct, we need to only write the block list of allocated blocks not all 5 with zeros.
+	// the above is correct, we need to only write the block list of allocated blocks not all 5 with zeros.
 	var block_list []uint32 = *entry.Get_block_group_list()
 	var block_list_length = entry.Get_block_group_lengthxxxz()
 	// same thing, only write allocated blocks not entire block_group_list array
@@ -931,7 +931,7 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 
 	// now look through it's block_group list looking for data_block
 	var rp uint32
-var block_group_list_length = entry.Get_block_group_lengthxxxz()
+	var block_group_list_length = entry.Get_block_group_lengthxxxz()
 
 	for rp = 0; rp < block_group_list_length; rp++ {
 		var block_group_pos_value uint32
