@@ -223,7 +223,7 @@ func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.
 
 func (this *Slookup_i_entry) Set_block_group_pos(block_group_pos uint32, data_block uint32) tools.Ret {
 	/* given an index into the block_group array, set the array position's value after validating */
-	if block_group_pos > this.block_group_count {
+	if block_group_pos >= this.block_group_count {
 		return tools.Error(this.log, "trying to set block_group  pos ", block_group_pos,
 			" which is greater than the number of blocks in the block_group ", this.block_group_count)
 	}

@@ -1114,7 +1114,6 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				entry.Set_block_group_pos(rp, new_data_block_pos)
 				this.log.Debug("adding data block " + tools.Uint32tostring(new_data_block_pos) + " to position " +
 					tools.Uint32tostring(rp) + " in entry block_group array list.")
-
 			}
 
 			// write entry to disk so it is correct on disk since nobody else is going to do it later.
