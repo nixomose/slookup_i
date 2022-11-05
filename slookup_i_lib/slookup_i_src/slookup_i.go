@@ -753,7 +753,7 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	var block_list []uint32 = *entry.Get_block_group_list()
 	var block_list_length = entry.Get_block_group_lengthxxxz()
 
-	// xxxz this must know to only read up to the number of allocated blocks, not the entire array
+	// this must know to only read up to the number of allocated blocks, not the entire array
 	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list, block_list_length) // absolute block position
 	if ret != nil {
 		return ret, nil
@@ -1268,10 +1268,10 @@ func (this *Slookup_i) copy_data_block(move_to uint32, move_from uint32) tools.R
 	entry list. */
 	var ret tools.Ret
 	var data *[]byte
-	if ret, data = this.Data_block_load(move_from); ret != nil {
+	if ret, data = this.m_transaction_log_storage.Read_block(move_from); ret != nil {
 		return ret
 	}
-	return this.Data_block_store(move_to, data)
+	return this.m_transaction_log_storage.Write_block(move_to, data)
 }
 
 /* allocate and deallocated used to be in the backing store, now it's here.
