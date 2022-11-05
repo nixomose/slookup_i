@@ -158,9 +158,11 @@ func (this *Slookup_i_entry) Init() {
 func (this *Slookup_i_entry) Set_value(new_value *[]byte) tools.Ret {
 	// make sure the value we're setting doesn't exceed the limits we said we can store
 
-	if uint32(len(*new_value)) > this.max_value_length {
-		return tools.Error(this.log, "trying to set value length of ", len(*new_value), " but only have space for  ",
-			this.max_value_length)
+	if new_value != nil {
+		if uint32(len(*new_value)) > this.max_value_length {
+			return tools.Error(this.log, "trying to set value length of ", len(*new_value), " but only have space for  ",
+				this.max_value_length)
+		}
 	}
 	this.value = new_value // should we make copy? who owns original memory
 	return nil

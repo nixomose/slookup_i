@@ -988,8 +988,10 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	var current_block_group_count uint32 = entry.Get_block_group_lengthxxxz()
 
 	// figure out how many nodes we need to store this write.
-	var new_value_length uint32 = uint32(len(*new_value))
-
+	var new_value_length uint32 = 0
+	if new_value != nil {
+		new_value_length = uint32(len(*new_value))
+	}
 	var block_group_count_required uint32
 	ret, block_group_count_required = this.calculate_block_group_count_for_value(new_value_length)
 	if ret != nil {
