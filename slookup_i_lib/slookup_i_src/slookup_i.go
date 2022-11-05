@@ -1000,7 +1000,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 	/* first handle shrinking if need be */
 	this.log.Debug("current block group count: " + tools.Uint32tostring(current_block_group_count) +
-		" additional block group count required: " + tools.Uint32tostring(block_group_count_required))
+		". block group count required: " + tools.Uint32tostring(block_group_count_required))
 	if block_group_count_required < current_block_group_count {
 		/* all the nodes past what we need get deleted and zeroed in the entry's block_group_list array */
 
@@ -1263,13 +1263,15 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 }
 
 func (this *Slookup_i) copy_data_block(move_to uint32, move_from uint32) tools.Ret {
-	/* read the from block of data, write it to the to block */
+	/* read the from block of data, write it to the to block.
+	this is an actual on-disk block of data, not a block_num to be looked up in the
+	entry list. */
 	var ret tools.Ret
 	var data *[]byte
-	if ret, data = this.Read(move_from); ret != nil {
+	if ret, data = this.Data_block_load(move_from); ret != nil {
 		return ret
 	}
-	return this.Write(move_to, data)
+	return this.Data_block_store(move_to, data)
 }
 
 /* allocate and deallocated used to be in the backing store, now it's here.
