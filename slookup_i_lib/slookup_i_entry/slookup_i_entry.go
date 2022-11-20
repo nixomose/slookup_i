@@ -253,7 +253,7 @@ func (this *Slookup_i_entry) Set_reverse_lookup_pos(reverse_lookup_pos uint32, e
 
 func (this *Slookup_i_entry) Get_reverse_lookup_pos(reverse_lookup_pos uint32) (tools.Ret, uint32) {
 	/* same as above except instead of setting a reverse_lookup_pos, we're returning the value */
-	if reverse_lookup_pos > this.block_group_count {
+	if reverse_lookup_pos >= this.block_group_count {
 		return tools.Error(this.log, "trying to set reverse_lookup_pos ", reverse_lookup_pos,
 			" which is greater than the block_group_count ", this.block_group_count), 0
 	}
