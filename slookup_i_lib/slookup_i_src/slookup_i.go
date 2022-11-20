@@ -921,7 +921,7 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 		return ret, nil, 0
 	}
 	var block_num uint32
-	if ret, block_num = entry.Get_reverse_lookup_pos(reverse_lookup_entry_pos); ret != nil {
+	if ret, block_num = reverse_entry.Get_reverse_lookup_pos(reverse_lookup_entry_pos); ret != nil {
 		return ret, nil, 0
 	}
 	// now go get the forward entry for block_num
