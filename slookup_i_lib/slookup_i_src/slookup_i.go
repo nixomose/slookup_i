@@ -496,6 +496,7 @@ func (this *Slookup_i) Get_free_position() (tools.Ret, uint32) {
 	// we can make a cache later.
 	// I guess the header is the cache.
 	var pos = this.m_header.M_free_position
+	// maybe some validation check here xxxz
 	return nil, pos
 }
 
@@ -875,7 +876,7 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_stored_in uint32) tools.Ret {
 	/* the idea here is that when we allocate a data block to store data in, we have to update the reverse
 	   lookup table entry for that block so that if somebody needs to delete a block and pull this one, they know
-	   what entry that block is stored in.
+	   what forward lookup entry has the block_group_list pos that points to the block that is stored.
 	   so here we are given a data block position (that was just allocated) and the entry block position that it was
 	   allocated to. we find, read, update and rewrite the entry block that has the reverse lookup for this data_block
 	   which means whoever calls this must have everything written to disk because we may pick up and rewrite any
@@ -1185,19 +1186,21 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		     0) the idea is we take the last allocated block (old block_num) and move it to the position being deleted (new block_num)
 	       so if let's say we have a block group count of 5 that means we store 5 reverse lookup array entries in each entry.
 				 so if we're going to delete block 23, that means we'd move block 29 to 23.
-				 so if we were trying to find out what entry has the forward lookup for block 29, the reverse lookup entry would be
-				 in entry #5 array position 4
+				 so if we were trying to find out what entry has the forward lookup for the data that is in
+				 block 29, the reverse lookup entry would be in entry #5 array position 4
 	block num   0 1 2 3 4   5 6 7 8 9  1011121314  1516171819  2021222324  2526272829
 	entry       0 1 2 3 4 | 0 1 2 3 4 | 0 1 2 3 4 | 0 1 2 3 4 | 0 1 2 3 4 | 0 1 2 3 4 <-- this is the data_block_reverse_lookup_list
-	       that array position would point to the entry number that has in it the forward lookup for block 29, but we don't
-				 know which block_group_list array entry we only know that it's in that entry so we have to scan the block_group_list
-				 for 29. once we have that position, we can update it to point to the new location 23 that 29 is moving to.
-				 and then we have to update the reverse lookup for 23 (which is in entry #4 array pos 3)
-				 just like any normal write of that block to point to entry #4 where it can be scanned for "23"
+
+	       that array position would point to the entry number that has in it the forward lookup for the data in block 29,
+				 but we don't know which block_group_list array entry we only know that it's in that entry so we have to
+				 scan the block_group_list for 29. once we have that position, we can update it to point to the
+				 new location 23 that 29 is moving to.
+				 and then just like any normal write of that block 23, we have to update the reverse lookup for 23
+				 (which is in entry #4 array pos 3) to point to entry #4 where it can be scanned for "23"
 
 				 1) copy the data_block from the old block_num to the new block_num
 				 2) do a reverse lookup on the old block_num
-				 3) update the block_group_pos that pointed to the old block_num to point to the new block_num
+				 3) update the block_group_pos (scan for it) that pointed to the old block_num to point to the new block_num
 				 4) write out the entry with the updated block_group array pos setting.
 				 5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
 				    which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
@@ -1207,6 +1210,7 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 						so that reverse lookup entry will get written over when that block is allocated again.
 						we could waste the time and io to zero out that reverse lookup entry, but that's a wasted io
 						and that's why we validate all the ranges all the time.
+			somehow that made a lot more sense when I first wrote it.
 	*/
 
 	// get the mover data block as the last allocted block
@@ -1242,7 +1246,7 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	// 2) do a reverse lookup on the old block_num
 	var entry *slookup_i_lib_entry.Slookup_i_entry
 	var block_group_pos uint32
-	if ret, entry, block_group_pos = this.reverse_lookup_entry_get(data_block_num); ret != nil {
+	if ret, entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
 		return
 	}
 
