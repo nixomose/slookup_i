@@ -126,6 +126,12 @@ func test_two_blocks(filename string) tools.Ret {
 		return ret
 	}
 
+	/* now write a 2-block_group_count entry */
+	data = make_block_data(0x23, data_block_size*2) // C
+	if ret = slookup.Write(43, data); ret != nil {
+		return ret
+	}
+
 	if ret = bring_down(slookup); ret != nil {
 		return ret
 	}
