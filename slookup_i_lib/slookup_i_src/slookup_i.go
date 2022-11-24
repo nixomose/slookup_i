@@ -86,9 +86,10 @@ type Slookup_i struct {
 	/* 12/26/2020 only one of anything in the interface can happen at once, so here's the lock for it. */
 	interface_lock sync.Mutex
 
-	m_verify_slookup_i_addressable_blocks uint32 // this is only used to make sure the client knows what they're doing.
-	m_verify_slookup_i_block_group_count  uint32 // same here
-	m_verify_slookup_i_data_block_size    uint32 // same here
+	m_verify_slookup_i_addressable_blocks         uint32 // this is only used to make sure the client knows what they're doing.
+	m_verify_slookup_i_block_group_count          uint32 // same here
+	m_verify_slookup_i_data_block_size            uint32 // same here
+	m_verify_slookup_i_total_backing_store_blocks uint32 // same here
 
 	debugprint bool
 }
@@ -96,7 +97,7 @@ type Slookup_i struct {
 func New_Slookup_i(l *tools.Nixomosetools_logger,
 	b slookup_i_lib_interfaces.Slookup_i_backing_store_interface,
 	t slookup_i_lib_interfaces.Transaction_log_interface, /* entry_size uint32, this gets calculated */
-	addressable_blocks uint32, block_group_count uint32, data_block_size uint32, total_blocks uint32) *Slookup_i {
+	addressable_blocks uint32, block_group_count uint32, data_block_size uint32, total_backing_store_blocks uint32) *Slookup_i {
 	/* so addressable_blocks * block_group_count is the total number of blocks we can store.
 		 block_group_count * data_block_size is the size of one storable block that can be compressed (for example)
 		 down to data_block size. so that represents how many bytes are storable in a block from the caller's point
@@ -112,7 +113,7 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 	var size_calc *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(l, 0, 0, block_group_count)
 	s.m_entry_size_cache = size_calc.Serialized_size()
 
-	s.init_header(data_block_size, addressable_blocks, s.m_entry_size_cache, total_blocks, block_group_count)
+	s.init_header(data_block_size, addressable_blocks, s.m_entry_size_cache, total_backing_store_blocks, block_group_count)
 	/* storage gives you direct access to the backing store so you can init and such */
 	s.m_storage = b
 	/* the transcation log gives you transactional reads and writes to that backing storage. */
@@ -124,17 +125,18 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 	s.m_verify_slookup_i_addressable_blocks = addressable_blocks
 	s.m_verify_slookup_i_block_group_count = block_group_count
 	s.m_verify_slookup_i_data_block_size = data_block_size
+	s.m_verify_slookup_i_total_backing_store_blocks = total_backing_store_blocks
 	return &s
 }
 
 func (this *Slookup_i) init_header(data_block_size uint32, lookup_table_entry_count uint32,
-	lookup_table_entry_size uint32, total_blocks uint32, block_group_count uint32) {
+	lookup_table_entry_size uint32, total_backing_store_blocks uint32, block_group_count uint32) {
 
 	this.m_header.M_magic = ZENDEMIC_OBJECT_STORE_SLOOKUP_I_MAGIC
 	this.m_header.M_data_block_size = data_block_size
 	this.m_header.M_lookup_table_entry_count = lookup_table_entry_count
 	this.m_header.M_lookup_table_entry_size = lookup_table_entry_size
-	this.m_header.M_total_blocks = total_blocks
+	this.m_header.M_total_backing_store_blocks = total_backing_store_blocks
 	this.m_header.M_block_group_count = block_group_count
 
 	this.m_header.M_lookup_table_start_block = this.Get_first_lookup_table_start_block()
@@ -143,6 +145,7 @@ func (this *Slookup_i) init_header(data_block_size uint32, lookup_table_entry_co
 	this.m_header.M_free_position = this.m_header.M_data_block_start_block
 
 	// // dirty maybe is a backing store thing? alignment too
+	// slookup will have it's own dirty flag. someday.
 	// h.M_alignment = alignment
 	// h.M_dirty = 0
 }
@@ -280,7 +283,8 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		this.m_transaction_log_storage, true,
 		this.m_verify_slookup_i_addressable_blocks,
 		this.m_verify_slookup_i_block_group_count,
-		this.m_verify_slookup_i_data_block_size); ret != nil {
+		this.m_verify_slookup_i_data_block_size,
+		this.m_verify_slookup_i_total_backing_store_blocks); ret != nil {
 		return ret
 	}
 	return nil
@@ -369,7 +373,7 @@ func (this *Slookup_i) Get_total_blocks_count() uint32 {
 	   this isn't the number of usable data storage blocks, it's the entire thing, including the header block 0,
 		 the lookup table, the tlog, the data blocks, everything. */
 
-	return this.m_header.M_total_blocks
+	return this.m_header.M_total_backing_store_blocks
 }
 
 func (this *Slookup_i) Get_lookup_table_entry_count() uint32 {
@@ -2135,7 +2139,7 @@ func (this *Slookup_i) Get_total_blocks() uint32 {
 		 of the data blocks, 500 is the end of the data blocks, then
 		 we return 500 because there are a total of 500 data blocks of storable space. */
 
-	return this.m_header.M_total_blocks
+	return this.m_header.M_total_backing_store_blocks
 }
 
 func (this *Slookup_i) Get_total_data_blocks() uint32 {
@@ -2145,7 +2149,7 @@ func (this *Slookup_i) Get_total_data_blocks() uint32 {
 		 of the data blocks, 500 is the end of the data blocks, then
 		 we return 400 because there are a total of 400 data blocks of storable space for data. */
 
-	var total_data = this.m_header.M_total_blocks - this.Get_first_data_block_start_block()
+	var total_data = this.m_header.M_total_backing_store_blocks - this.Get_first_data_block_start_block()
 	return total_data
 }
 

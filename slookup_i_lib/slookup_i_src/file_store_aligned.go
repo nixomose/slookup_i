@@ -229,7 +229,7 @@ func (this *File_store_aligned) Init() tools.Ret {
 	this.log.Debug("inital block size in bytes: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_size)))
 
 	this.m_header.M_block_count = this.m_initial_block_count
-	this.log.Debug("inital block count: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_count)))
+	this.log.Debug("inital total backing store block count: ", tools.Prettylargenumber_uint64(uint64(this.m_initial_block_count)))
 
 	this.m_header.M_alignment = this.m_initial_file_store_block_alignment
 	this.m_header.M_dirty = 1

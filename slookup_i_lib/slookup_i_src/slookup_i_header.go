@@ -30,7 +30,7 @@ type Slookup_i_header struct {
 	M_data_block_size             uint32 // the number of bytes we need to store a block of data. this is the smallest unit the backing store can read/write, and the maximum length of the value in 1 storable block, multiple blocks make up a storable unit (a block group)
 	M_lookup_table_entry_count    uint32 // this is the number of blocks that are storable. multiplied by data_block_size is the total allocatable storage in bytes
 	M_lookup_table_entry_size     uint32 // this is the number of bytes that a lookup table entry takes up
-	M_total_blocks                uint32 // the total size of file/backing store we have to work with, not the size of the block device we're supporting. it is okay to have less or more total blocks than lookup_table_entry_count. as in you can overprovision.
+	M_total_backing_store_blocks  uint32 // the total size of file/backing store we have to work with, not the size of the block device we're supporting. it is okay to have less or more total blocks than lookup_table_entry_count. as in you can overprovision.
 	M_block_group_count           uint32 // how many data blocks in a block group, also how many elements in the block_group_list a.k.a. m_offspring_per_node
 	M_lookup_table_start_block    uint32 // what block number the lookup table starts at
 	M_transaction_log_start_block uint32 // what block number the transaction log starts at
@@ -130,7 +130,8 @@ func (this *Slookup_i_header) Initial_load_and_verify_header(
 	check_device_params bool,
 	m_verify_slookup_i_addressable_blocks uint32,
 	m_verify_slookup_i_block_group_count uint32,
-	m_verify_slookup_i_data_block_size uint32) tools.Ret {
+	m_verify_slookup_i_data_block_size uint32,
+	m_verify_slookup_i_total_backing_store_blocks uint32) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
 	   (this check_device_params) because they will fail. */
@@ -199,6 +200,11 @@ func (this *Slookup_i_header) Initial_load_and_verify_header(
 		if this.M_block_group_count != m_verify_slookup_i_block_group_count {
 			return tools.Error(log, "the stored block group count ", this.M_block_group_count, " doesn't equal ",
 				"the supplied block group count of ", m_verify_slookup_i_block_group_count)
+		}
+
+		if this.M_total_backing_store_blocks != m_verify_slookup_i_total_backing_store_blocks {
+			return tools.Error(log, "the stored total backing store blocks ", this.M_total_backing_store_blocks, " doesn't equal ",
+				"the supplied total backing store blocks of ", m_verify_slookup_i_total_backing_store_blocks)
 		}
 
 		var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(log, 0,

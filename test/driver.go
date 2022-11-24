@@ -13,6 +13,7 @@ import (
 
 func make_file_store_aligned(log *tools.Nixomosetools_logger, storage_file string, device_directio bool, device_alignment uint32,
 	PHYSICAL_BLOCK_SIZE uint32, slookup_i_data_block_size uint32, block_count uint32) (tools.Ret, *slookup_i_src.File_store_aligned) {
+	/* block_count here is the number of data_block_size blocks we can store */
 
 	var alignment = device_alignment // PHYSICAL_BLOCK_SIZE // 4k will use 8k per block because of our stree block header pushes the whole node size to a bit over 4k
 
@@ -137,7 +138,24 @@ func main() {
 
 	var log *tools.Nixomosetools_logger = tools.New_Nixomosetools_logger(tools.DEBUG)
 
-	var data_block_size, block_group_count, addressable_blocks, total_blocks = get_init_params()
+	/* total data blocks *should* be block_group_count * user_addressable_blocks plus the number of blocks we need
+	for the header, the lookup table and the journal and all the padding, but we allow for the flexibility
+	of underprovisioning if you want so you can specify that we actually can hold less data than the number of
+	blocks demands we should be able to. And if we compress well, it is quite possible you still won't run out
+	even if you underprovision. */
+
+	/* we could conceivably calculate this by adding up all the space for the header, padding,
+	lookup table, padding, tlog, padding, and actual data_block storage. but the idea is that you can
+	under provision, and you can just tell us how much space you have and hope you don't run out. */
+	/* of course if you don't provide enough room for the lookup table and the tlog and at least one actual data_block storage
+	block, well, it's not going to work. */
+
+	var data_block_size, block_group_count, user_addressable_blocks, total_backing_store_blocks = get_init_params()
+
+	log.Debug("data_block_size: ", data_block_size)
+	log.Debug("block_group_count: ", block_group_count)
+	log.Debug("user_addressable blocks: ", user_addressable_blocks)
+	log.Debug("total_backing_store_blocks: ", total_backing_store_blocks)
 
 	// value_type := make_block_data(0x21, data_block_size)
 
@@ -156,14 +174,15 @@ func main() {
 		var physical_block_size uint32 = 4096
 
 		var fstore *slookup_i_src.File_store_aligned
-		ret, fstore = make_file_store_aligned(log, testfile, directio, device_alignment, physical_block_size, data_block_size, total_blocks)
+		ret, fstore = make_file_store_aligned(log, testfile, directio, device_alignment,
+			physical_block_size, data_block_size, total_backing_store_blocks)
 		if ret != nil {
 			return
 		}
-		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_blocks)
+		var tlog = slookup_i_src.New_Tlog(log, fstore, data_block_size, total_backing_store_blocks)
 
 		var slookup *slookup_i_src.Slookup_i = slookup_i_src.New_Slookup_i(log, fstore, tlog,
-			addressable_blocks, block_group_count, data_block_size, total_blocks)
+			user_addressable_blocks, block_group_count, data_block_size, total_backing_store_blocks)
 
 		// init the backing store and tlog and slookup header
 		ret = slookup.Init()
@@ -203,22 +222,28 @@ func main() {
 
 }
 
-func get_init_params() (data_block_size uint32, block_group_count uint32, addressabble_blocks uint32, total_blocks uint32) {
+func get_init_params() (data_block_size uint32, block_group_count uint32, user_addressable_blocks uint32, total_backing_store_blocks uint32) {
 
 	/* data_block_size * block_group_count is the number of bytes in a user facing block, that can be
 	for example compressed down to a minimum of 1 data_block size */
-	data_block_size = 4096     // bytes in a data block, the fundamental unit of storage in slookup_i
-	block_group_count = 5      // a.k.a. additional_nodes_per_block, how many data_blocks are stored in a user-facing 'block'
-	addressabble_blocks = 1000 // the number of addressable blocks in this slookup_i table.
+	data_block_size = 4096 // bytes in a data block, the fundamental unit of storage in slookup_i
+	block_group_count = 5  // a.k.a. additional_nodes_per_block, how many data_blocks are stored in a user-facing 'block'
 
-	/* the total amount of storable bytes is data_block_size * block_group_count * lookup_table_entry_count */
+	user_addressable_blocks = 1000 // the number of addressable blocks in this slookup_i table, defined by the user.
+	/* a data block is 5k because a block from the user's point of view is stored in an entry. there are
+	   5 data blocks in that user block (so we can maybe compress it down to 1 actually stored).
+		 so if there block_Group_count is 5, and the user says there are 1000 blocks then the total data storable
+		 is 5 * 1000 * 4096 bytes */
 
-	/* we could concienvably calculate this by adding up all the space for the header, padding,
+	/* the total amount of storable bytes is data_block_size * block_group_count * lookup_table_entry_count(addressable blocks) */
+
+	/* we could conceivably calculate this by adding up all the space for the header, padding,
 	lookup table, padding, tlog, padding, and actual data_block storage. but the idea is that you can
 	under provision, and you can just tell us how much space you have and hope you don't run out. */
+	/* of course if you don't provide enough room for the lookup table and the tlog and at least one actual data_block storage
+	block, well, it's not going to work. */
 
-	total_blocks = addressabble_blocks*block_group_count + 1000
-	total_blocks = 500 // for testing let's go with this.
+	total_backing_store_blocks = 500 // for testing let's go with this.
 
 	return
 }
