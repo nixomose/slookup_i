@@ -877,12 +877,14 @@ func (this *Slookup_i) calculate_block_group_count_for_value(value_length uint32
 	return nil, nnodes
 }
 
-func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_stored_in uint32) tools.Ret {
+func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, entry_block_num uint32) tools.Ret {
 	/* the idea here is that when we allocate a data block to store data in, we have to update the reverse
 	   lookup table entry for that block so that if somebody needs to delete a block and pull this one, they know
-	   what forward lookup entry has the block_group_list pos that points to the block that is stored.
-	   so here we are given a data block position (that was just allocated) and the entry block position that it was
-	   allocated to. we find, read, update and rewrite the entry block that has the reverse lookup for this data_block
+	   what forward lookup entry has the block_group_list pos that points to the data_block that we just stored/allocated.
+
+		 so here we are given a data block position (that was just allocated) and the entry block position that it was
+	   allocated to (the addressaable block that was written to). we find, read, update and rewrite the entry block
+		 that has the reverse lookup for this data_block
 	   which means whoever calls this must have everything written to disk because we may pick up and rewrite any
 	   entry. the reverse lookup can be anywhere. */
 
@@ -897,7 +899,7 @@ func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, block_its_sto
 	if ret, entry = this.Lookup_entry_load(reverse_lookup_entry_num); ret != nil {
 		return ret
 	}
-	if ret = entry.Set_reverse_lookup_pos(reverse_lookup_entry_pos, reverse_lookup_entry_num); ret != nil {
+	if ret = entry.Set_reverse_lookup_pos(reverse_lookup_entry_pos, entry_block_num); ret != nil {
 		return ret
 	}
 	if ret = this.lookup_entry_store_internal(reverse_lookup_entry_num, entry); ret != nil {
@@ -1300,7 +1302,8 @@ same basic idea though, provide the ability to acquire multiple blocks at once
 but you can only free one at a time. */
 
 func (this *Slookup_i) allocate(amount uint32) (tools.Ret, []uint32) {
-	/* allocate a number of blocks from free position and return an array of the positions allocated */
+	/* allocate a number of blocks (as in data blocks, not addressable blocks)
+	   from free position and return an array of the positions allocated */
 	/* see if there's enough room to add these nodes and if so, return their
 	   positions in the array and up the free position accordingly */
 	/* if we ever go concurrent we're going to have to lock this and a lot of other things I suppose */
