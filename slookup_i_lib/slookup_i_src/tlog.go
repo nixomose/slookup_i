@@ -43,6 +43,9 @@ func New_Tlog(l *tools.Nixomosetools_logger, storage slookup_i_lib.Slookup_i_bac
 	raw, as in not through the transaction log, and parse out the header and create the slookup_i and the tlog with
 	the parameters found therin. of andor. */
 
+	/* we make the distinction between user_addressable_blocks and total_data_blocks. very different things.
+	user_addressable is what the user asks for total_data_blocks is how many data_block_size_in_bytes blocks we can store. */
+
 	var t Tlog
 	t.log = l
 	t.m_storage = storage
