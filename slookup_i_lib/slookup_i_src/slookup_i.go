@@ -697,7 +697,7 @@ func (this *Slookup_i) Lookup_entry_load(block_num uint32) (tools.Ret, *slookup_
 	}
 	var entrydata = (*alldata)[start_offset : start_offset+this.Get_lookup_entry_size_in_bytes()]
 	var entry = slookup_i_lib_entry.New_slookup_entry(this.log, block_num,
-		this.Get_data_block_size_in_bytes(), this.Get_block_group_count())
+		this.Get_data_block_size_in_bytes()*this.Get_block_group_count(), this.Get_block_group_count())
 	ret = entry.Deserialize(this.log, &entrydata)
 	return ret, entry
 }
