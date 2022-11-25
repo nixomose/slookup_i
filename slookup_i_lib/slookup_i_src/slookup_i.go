@@ -2156,7 +2156,11 @@ func (this *Slookup_i) Get_total_data_blocks() uint32 {
 	return total_data
 }
 
-func (this *Slookup_i) Diag_dump(entry *slookup_i_lib_entry.Slookup_i_entry) {
+func (this *Slookup_i) Diag_dump_slookup_header() {
+	this.m_header.Dump(this.log)
+}
+
+func (this *Slookup_i) Diag_dump_entry(entry *slookup_i_lib_entry.Slookup_i_entry) {
 	/* dump this entry and value */
 
 	fmt.Println("entry: ", entry.Dump(false))
@@ -2169,7 +2173,7 @@ func (this *Slookup_i) Diag_dump_block(block_num uint32) {
 	var entry *slookup_i_lib_entry.Slookup_i_entry
 	ret, entry = this.Lookup_entry_load(block_num)
 	if ret == nil {
-		this.Diag_dump(entry)
+		this.Diag_dump_entry(entry)
 	}
 }
 

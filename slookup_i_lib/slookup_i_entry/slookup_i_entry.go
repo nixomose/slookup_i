@@ -141,7 +141,7 @@ func (this *Slookup_i_entry) Dump(with_value bool) string {
 		}
 		str += tools.Uint32tostring(n)
 	}
-	str += " value length: " + tools.Uint32tostring(this.Get_value_length())
+	str += "],  value length: " + tools.Uint32tostring(this.Get_value_length())
 	if with_value {
 		str += tools.Dump(*this.Get_value())
 	}

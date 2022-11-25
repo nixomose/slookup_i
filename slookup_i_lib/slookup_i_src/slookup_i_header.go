@@ -14,6 +14,8 @@ import (
 	"crypto"
 	"crypto/md5"
 	"encoding/binary"
+	"encoding/json"
+	"fmt"
 
 	"github.com/nixomose/nixomosegotools/tools"
 	slookup_i_lib_entry "github.com/nixomose/slookup_i/slookup_i_lib/slookup_i_entry"
@@ -52,6 +54,36 @@ type Slookup_i_header struct {
 	          free pos                |
 	00000020  00 00 00 01 00 00 00 00 | 00 00 00 00 00 00 00 00  |................|
 	*/
+}
+
+func (this *Slookup_i_header) Dump(log *tools.Nixomosetools_logger) tools.Ret {
+
+	var m map[string]string = make(map[string]string)
+
+	magic := make([]byte, 8)
+	binary.BigEndian.PutUint64(magic, uint64(this.M_magic))
+	// not quite what I wanted. m["0001_magic"] = hexdump.Dump(magic)
+	m["0001_magic"] = tools.Dump([]byte(magic))
+
+	m["0002_data_block_size"] = tools.Prettylargenumber_uint64(uint64(this.M_data_block_size)) + " 0x" + fmt.Sprintf("%016x", this.M_data_block_size)
+	m["0003_lookup_table_entry_count"] = tools.Prettylargenumber_uint64(uint64(this.M_lookup_table_entry_count)) + " 0x" + fmt.Sprintf("%016x", this.M_lookup_table_entry_count)
+
+	m["0004_M_lookup_table_entry_size"] = tools.Prettylargenumber_uint64(uint64(this.M_lookup_table_entry_size)) + " 0x" + fmt.Sprintf("%016x", this.M_lookup_table_entry_size)
+	m["0005_total_backing_store_blocks"] = tools.Prettylargenumber_uint64(uint64(this.M_total_backing_store_blocks)) + " 0x" + fmt.Sprintf("%016x", this.M_total_backing_store_blocks)
+	m["0006_block_group_count"] = tools.Prettylargenumber_uint64(uint64(this.M_block_group_count)) + " 0x" + fmt.Sprintf("%016x", this.M_block_group_count)
+	m["0007_lookup_table_start_block"] = tools.Prettylargenumber_uint64(uint64(this.M_lookup_table_start_block)) + " 0x" + fmt.Sprintf("%016x", this.M_lookup_table_start_block)
+	m["0008_transaction_log_start_block"] = tools.Prettylargenumber_uint64(uint64(this.M_transaction_log_start_block)) + " 0x" + fmt.Sprintf("%016x", this.M_transaction_log_start_block)
+	m["0009_data_block_start_block"] = tools.Prettylargenumber_uint64(uint64(this.M_data_block_start_block)) + " 0x" + fmt.Sprintf("%016x", this.M_data_block_start_block)
+	m["0010_free_position"] = tools.Prettylargenumber_uint64(uint64(this.M_free_position)) + " 0x" + fmt.Sprintf("%016x", this.M_free_position)
+
+	bytesout, err := json.MarshalIndent(m, "", " ")
+	if err != nil {
+		return tools.Error(log, "unable to marshal root node information into json: ", err)
+	}
+
+	var json string = string(bytesout)
+	fmt.Println(json)
+	return nil
 }
 
 func (this *Slookup_i_header) serialize(log *tools.Nixomosetools_logger) (tools.Ret, *[]byte) {

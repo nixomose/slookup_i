@@ -122,13 +122,18 @@ func test_two_blocks(filename string) tools.Ret {
 		return ret
 	}
 
+	slookup.Diag_dump_slookup_header()
+	slookup.Diag_dump_block(42)
+	slookup.Diag_dump_block(43)
+	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+
 	if ret = slookup.Discard(42); ret != nil {
 		return ret
 	}
 
 	/* now write a 2-block_group_count entry */
 	data = make_block_data(0x23, data_block_size*2) // C
-	if ret = slookup.Write(43, data); ret != nil {
+	if ret = slookup.Write(44, data); ret != nil {
 		return ret
 	}
 
