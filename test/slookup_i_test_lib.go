@@ -98,7 +98,7 @@ func (this *slookup_i_test_lib) Slookup_4k_tests(s *slookup_i_src.Slookup_i) too
 		if ret = s.Data_block_store(entry); ret != nil {
 			return ret
 		}
-		s.Diag_dump(entry)
+		s.Diag_dump_entry(entry)
 
 		this.log.Debug("\n\nreading back block: ", k0)
 
