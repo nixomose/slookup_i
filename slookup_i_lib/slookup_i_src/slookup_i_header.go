@@ -163,6 +163,7 @@ func (this *Slookup_i_header) Initial_load_and_verify_header(
 	m_verify_slookup_i_addressable_blocks uint32,
 	m_verify_slookup_i_block_group_count uint32,
 	m_verify_slookup_i_data_block_size uint32,
+	m_verify_slookup_i_entry_max_value_length uint32, // data_block_size * block_group_count
 	m_verify_slookup_i_total_backing_store_blocks uint32) tools.Ret {
 	/* read the first block and see if it's got our magic number, and validate size and blocks and all that. */
 	/* for storage status, the values passed in device are bunk, so skip the checks
@@ -239,8 +240,13 @@ func (this *Slookup_i_header) Initial_load_and_verify_header(
 				"the supplied total backing store blocks of ", m_verify_slookup_i_total_backing_store_blocks)
 		}
 
+		if this.M_data_block_size*this.M_block_group_count != m_verify_slookup_i_entry_max_value_length {
+			return tools.Error(log, "the stored max value length ", this.M_data_block_size*this.M_block_group_count, " doesn't equal ",
+				"the supplied max value length of ", m_verify_slookup_i_entry_max_value_length)
+		}
+
 		var measure_entry *slookup_i_lib_entry.Slookup_i_entry = slookup_i_lib_entry.New_slookup_entry(log, 0,
-			m_verify_slookup_i_data_block_size, m_verify_slookup_i_block_group_count)
+			m_verify_slookup_i_entry_max_value_length, m_verify_slookup_i_block_group_count)
 
 		var measure_entry_serialized_size uint32 = measure_entry.Serialized_size()
 
