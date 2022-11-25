@@ -67,7 +67,7 @@ type Slookup_i_entry struct {
 	 * deserialize correctly. which means this value gets set once at creation and deserializing
 	 * does not overwrite it so it better be correct. it is block_size * block_group_count, the amount of data one
 	 block_num refers to in bytes, which is different than the max_value_length in slookup_i */
-	max_value_length uint32
+	max_entry_value_length uint32
 
 	/* so now we're left with the problem of when we need to move a data_block we have to find the lookup table
 	entry that points to it. took me a while to figure out but what we can do is have another lookup table that instead
@@ -99,13 +99,14 @@ type Slookup_i_entry struct {
 	entry_pos uint32
 }
 
-func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_value_length uint32,
+func New_slookup_entry(l *tools.Nixomosetools_logger, Entry_pos uint32, Max_entry_value_length uint32,
 	Block_group_count uint32) *Slookup_i_entry {
 
 	var n Slookup_i_entry
 	n.log = l
 	n.value = nil
-	n.max_value_length = Max_value_length
+	// max value length is the block_size * block_group_count
+	n.max_entry_value_length = Max_entry_value_length
 	// if the array is null then you are an offspring node, otherwise you are a mother node.
 	/* we don't serialize this or store it, but we need it to know how big to make the offspring array
 	 * when we deserialize a node from disk, the array size has to be the max allowable for this block size.
@@ -132,7 +133,7 @@ func (this *Slookup_i_entry) Dump(with_value bool) string {
 		}
 		str += tools.Uint32tostring(n)
 	}
-	str += "], max_value_length: " + tools.Uint32tostring(this.max_value_length) +
+	str += "], max_value_length: " + tools.Uint32tostring(this.max_entry_value_length) +
 		", data_block_lookup_list: ["
 
 	for pos, n := range *this.data_block_reverse_lookup_list {
@@ -159,9 +160,9 @@ func (this *Slookup_i_entry) Set_value(new_value *[]byte) tools.Ret {
 	// make sure the value we're setting doesn't exceed the limits we said we can store
 
 	if new_value != nil {
-		if uint32(len(*new_value)) > this.max_value_length {
+		if uint32(len(*new_value)) > this.max_entry_value_length {
 			return tools.Error(this.log, "trying to set value length of ", len(*new_value), " but only have space for  ",
-				this.max_value_length)
+				this.max_entry_value_length)
 		}
 	}
 	this.value = new_value // should we make copy? who owns original memory
@@ -198,7 +199,7 @@ func (this *Slookup_i_entry) Get_value_length() uint32 {
 
 func (this *Slookup_i_entry) Get_max_value_length() uint32 {
 	// return the max length of data
-	return this.max_value_length
+	return this.max_entry_value_length
 }
 
 func (this *Slookup_i_entry) Get_entry_pos() uint32 {
@@ -302,8 +303,8 @@ func (this *Slookup_i_entry) Serialize() (tools.Ret, *[]byte) {
 	for rp := 0; rp < int(this.block_group_count); rp++ {
 		binary.Write(bb, binary.BigEndian, uint32((*this.data_block_reverse_lookup_list)[rp]))
 	}
-	if uint32(len(*bval)) > this.max_value_length {
-		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_value_length,
+	if uint32(len(*bval)) > this.max_entry_value_length {
+		return tools.Error(this.log, "value length is bigger than max value length: ", this.max_entry_value_length,
 			" it is ", len(*bval)), nil
 	}
 
