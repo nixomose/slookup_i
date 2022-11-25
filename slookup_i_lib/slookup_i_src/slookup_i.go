@@ -89,6 +89,7 @@ type Slookup_i struct {
 	m_verify_slookup_i_addressable_blocks         uint32 // this is only used to make sure the client knows what they're doing.
 	m_verify_slookup_i_block_group_count          uint32 // same here
 	m_verify_slookup_i_data_block_size            uint32 // same here
+	m_verify_slookup_i_entry_max_value_length     uint32
 	m_verify_slookup_i_total_backing_store_blocks uint32 // same here
 
 	debugprint bool
@@ -125,6 +126,7 @@ func New_Slookup_i(l *tools.Nixomosetools_logger,
 	s.m_verify_slookup_i_addressable_blocks = addressable_blocks
 	s.m_verify_slookup_i_block_group_count = block_group_count
 	s.m_verify_slookup_i_data_block_size = data_block_size
+	s.m_verify_slookup_i_entry_max_value_length = data_block_size * block_group_count // kinda pointless since the user isn't passing it, but let's just make sure everything is correct.
 	s.m_verify_slookup_i_total_backing_store_blocks = total_backing_store_blocks
 	return &s
 }
@@ -284,6 +286,7 @@ func (this *Slookup_i) Startup(force bool) tools.Ret {
 		this.m_verify_slookup_i_addressable_blocks,
 		this.m_verify_slookup_i_block_group_count,
 		this.m_verify_slookup_i_data_block_size,
+		this.m_verify_slookup_i_entry_max_value_length,
 		this.m_verify_slookup_i_total_backing_store_blocks); ret != nil {
 		return ret
 	}
