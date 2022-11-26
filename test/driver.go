@@ -135,9 +135,25 @@ func test_two_blocks(filename string) tools.Ret {
 	slookup.Diag_dump_block(43)
 	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
 
-	/* now write a 2-block_group_count entry */
-	data = make_block_data(0x23, data_block_size*2) // C
-	if ret = slookup.Write(44, data); ret != nil {
+	/* now write a 4-block_group_count entry */
+	data = make_block_data(0x25, data_block_size*4)
+	if ret = slookup.Write(45, data); ret != nil {
+		return ret
+	}
+	// write a data_block after  so there's something to move when we shrink it
+	data = make_block_data(0x28, data_block_size*3)
+	if ret = slookup.Write(46, data); ret != nil {
+		return ret
+	}
+
+	// now shrink the 4 block entry down to one block
+	data = make_block_data(0x88, data_block_size*1)
+	if ret = slookup.Write(45, data); ret != nil {
+		return ret
+	}
+
+	// now discard 46
+	if ret = slookup.Discard(46); ret != nil {
 		return ret
 	}
 
