@@ -1083,19 +1083,27 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 		} // loop dp
 
 		/* so what is on disk is correct, what is in memory is probably/possibly not.
-		* read the entry back in before we do anything. we have to zero out the block_group_list array entries
-		* for the guys we just deleted unless delete does that already.
-		* I just checked it doesn't so we have to do that here, but I think that's it.
-		* 8/22/2022 so now physically_delete_one does clear out the entry's block_group_list array entries
-		* so we can probably skip this.
-		actally no, we can't skip this, well maybe we can. below in the else we have the case where we add
-		data blocks to the entry, and that needs to be written to disk. if we don't reread from disk here
-		we risk having after-the-if rewrite the entry to disk and it will be wrong if we don't refresh
-		it here. so we either fix below to make sure we don't rewrite (future optimization) or
-		we refresh here.
-		take that back again, each code area will make sure the entry is correct on disk.
-		physically delete does that for us, and add data blocks will write entry out itself
-		so we must refresh here so entry is correct after this no matter what. */
+				* read the entry back in before we do anything. we have to zero out the block_group_list array entries
+				* for the guys we just deleted unless delete does that already.
+				* I just checked it doesn't so we have to do that here, but I think that's it.
+				* 8/22/2022 so now physically_delete_one does clear out the entry's block_group_list array entries
+				* so we can probably skip this.
+				actally no, we can't skip this, well maybe we can. below in the else we have the case where we add
+				data blocks to the entry, and that needs to be written to disk. if we don't reread from disk here
+				we risk having after-the-if rewrite the entry to disk and it will be wrong if we don't refresh
+				it here. so we either fix below to make sure we don't rewrite (future optimization) or
+				we refresh here.
+				take that back again, each code area will make sure the entry is correct on disk.
+				physically delete does that for us, and add data blocks will write entry out itself
+				so we must refresh here so entry is correct after this no matter what.
+				11/25/2022 so for some reason clearing out the block_group_list for the deleted entry got missed, so I added
+				it as step 6.5 to the physically delete. it's better that it's there since delete now cleans up everything it HAS to.
+				(it does not clean up the reverse lookup for the deleted blocks but as we've already discussed elsewhere that
+		    doesn't matter.) but unlike what I said a few lines ago, we can't leave it for the else case below that writes out
+				the block to it's shortened form, because if the shortened form is zero bytes in length, it just bails because
+				there's nothing to do, so we have to tidy everything up as part of the delete.
+				So yes, if we shrink, we're going to be updating that same entry's block_group_list once for each
+				block deleted, but that's why we delete them backwards, and that's an optimization for another day. */
 
 		ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
 		if ret != nil {
@@ -1216,6 +1224,7 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 				 6) write that entry out too.
 				 6.5) we missed this, apparently stree did this and we lost it, we have to update the deleted block's entry.block_group_list to
 				    be all zeroed out to denote that there are no data blocks allocated for that entry anymore.
+						correction, not all zeroed out, but zero out the value of the one block we are deleting.
 		 		 7) deallocate block. this will not overwrite the reverse lookup for that block it will be old stale
 						data of out the valid range of data_blocks that exist/can be referred to,
 						so that reverse lookup entry will get written over when that block is allocated again.
@@ -1284,9 +1293,22 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		return
 	}
 	var block_group_list_length = forward_entry.Get_block_group_length()
+	/* we sorta do actually know which block_group_list entry is being deleted, because we always delete from the end
+	backwards, because we can't have a hole in the block_group_list, so we really kinda know it's the last one in the
+	list, but let's do it right and make sure we're deleting the thing we should be deleting.
+	it might also make sense to, if we find it in the middle, shuffle the rest forward, but that would be wrong too because
+	you can't delete a block out of the middle of an entry's data. it doesn't work like that. */
+
 	var rp uint32
 	for rp = 0; rp < block_group_list_length; rp++ {
-		forward_entry.Set_block_group_pos(rp, 0)
+		var block_group_pos uint32
+		if ret, block_group_pos = forward_entry.Get_block_group_pos(rp); ret != nil {
+			return
+		}
+		if block_group_pos == moved_to {
+			forward_entry.Set_block_group_pos(rp, 0)
+			break
+		}
 	}
 	// write it back out
 	if ret = this.lookup_entry_store_internal(forward_entry.Get_entry_pos(), forward_entry); ret != nil {
