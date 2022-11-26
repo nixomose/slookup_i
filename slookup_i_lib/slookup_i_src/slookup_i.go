@@ -1044,7 +1044,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				return ret
 			}
 			var block_group_value uint32 = resp
-			if block_group_value == 0 { /// xxxz remind me what this is for? this should never happen
+			if block_group_value == 0 { /// xxxz remind me what this is for? this should never happen, this is probably from the java port
 				break
 			}
 			delete_list[delete_list_pos] = block_group_value
@@ -1214,6 +1214,8 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 				 5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
 				    which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
 				 6) write that entry out too.
+				 6.5) we missed this, apparently stree did this and we lost it, we have to update the deleted block's entry.block_group_list to
+				    be all zeroed out to denote that there are no data blocks allocated for that entry anymore.
 		 		 7) deallocate block. this will not overwrite the reverse lookup for that block it will be old stale
 						data of out the valid range of data_blocks that exist/can be referred to,
 						so that reverse lookup entry will get written over when that block is allocated again.
@@ -1253,26 +1255,41 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	}
 
 	// 2) do a reverse lookup on the old block_num
-	var entry *slookup_i_lib_entry.Slookup_i_entry
+	var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
 	var block_group_pos uint32
-	if ret, entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
+	if ret, reverse_entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
 		return
 	}
 
 	// 	3) update the block_group_pos that pointed to the old block_num to point to the new block_num
-	if ret = entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
+	if ret = reverse_entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
 		return
 	}
 
 	// 	4) write out the entry with the updated block_group array pos setting.
-	if ret = this.Lookup_entry_store(entry.Get_entry_pos(), entry); ret != nil {
+	if ret = this.lookup_entry_store_internal(reverse_entry.Get_entry_pos(), reverse_entry); ret != nil {
 		return
 	}
 
 	// 	5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
 	// 		 which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
 	// 	6) write that entry out too.
-	if ret = this.reverse_lookup_entry_set(moved_to, entry.Get_entry_pos()); ret != nil {
+	if ret = this.reverse_lookup_entry_set(moved_to, reverse_entry.Get_entry_pos()); ret != nil {
+		return
+	}
+
+	// 6.5) read the old deleted block's entry and zero out the block_group_list
+	var forward_entry *slookup_i_lib_entry.Slookup_i_entry
+	if ret, forward_entry = this.Lookup_entry_load(moved_to); ret != nil {
+		return
+	}
+	var block_group_list_length = forward_entry.Get_block_group_lengthxxxz()
+	var rp uint32
+	for rp = 0; rp < block_group_list_length; rp++ {
+		forward_entry.Set_block_group_pos(rp, 0)
+	}
+	// write it back out
+	if ret = this.lookup_entry_store_internal(forward_entry.Get_entry_pos(), forward_entry); ret != nil {
 		return
 	}
 
@@ -1325,6 +1342,12 @@ func (this *Slookup_i) allocate(amount uint32) (tools.Ret, []uint32) {
 			return ret, nil
 		}
 	}
+	// write new free position to disk
+	var ret tools.Ret
+	if ret = this.m_header.Store_header(this.log, this.m_transaction_log_storage, false); ret != nil {
+		return ret, nil
+	}
+
 	return nil, rvals
 }
 
