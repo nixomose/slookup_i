@@ -759,7 +759,7 @@ func (this *Slookup_i) Data_block_load(entry *slookup_i_lib_entry.Slookup_i_entr
 	var alldata *[]byte
 
 	var block_list []uint32 = *entry.Get_block_group_list()
-	var block_list_length = entry.Get_block_group_lengthxxxz()
+	var block_list_length = entry.Get_block_group_length()
 
 	// this must know to only read up to the number of allocated blocks, not the entire array
 	ret, alldata = this.m_transaction_log_storage.Read_block_list(block_list, block_list_length) // absolute block position
@@ -777,7 +777,7 @@ func (this *Slookup_i) Data_block_store(entry *slookup_i_lib_entry.Slookup_i_ent
 	// var actual_count = entry.Get_block_group_length() // this is how many are allocated, not/<= block_group_count
 	// the above is correct, we need to only write the block list of allocated blocks not all 5 with zeros.
 	var block_list []uint32 = *entry.Get_block_group_list()
-	var block_list_length = entry.Get_block_group_lengthxxxz()
+	var block_list_length = entry.Get_block_group_length()
 	// same thing, only write allocated blocks not entire block_group_list array
 	ret = this.m_transaction_log_storage.Write_block_list(block_list, block_list_length, alldata)
 	if ret != nil {
@@ -941,7 +941,7 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 
 	// now look through it's block_group list looking for data_block
 	var rp uint32
-	var block_group_list_length = entry.Get_block_group_lengthxxxz()
+	var block_group_list_length = entry.Get_block_group_length()
 
 	for rp = 0; rp < block_group_list_length; rp++ {
 		var block_group_pos_value uint32
@@ -995,7 +995,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 	}
 
 	// get a count of how many offspring there are now in mother node
-	var current_block_group_count uint32 = entry.Get_block_group_lengthxxxz()
+	var current_block_group_count uint32 = entry.Get_block_group_length()
 
 	// figure out how many nodes we need to store this write.
 	var new_value_length uint32 = 0
@@ -1283,7 +1283,7 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	if ret, forward_entry = this.Lookup_entry_load(moved_to); ret != nil {
 		return
 	}
-	var block_group_list_length = forward_entry.Get_block_group_lengthxxxz()
+	var block_group_list_length = forward_entry.Get_block_group_length()
 	var rp uint32
 	for rp = 0; rp < block_group_list_length; rp++ {
 		forward_entry.Set_block_group_pos(rp, 0)

@@ -177,7 +177,7 @@ func (this *Slookup_i_entry) Get_block_group_list() *[]uint32 {
 	return this.block_group_list
 }
 
-func (this *Slookup_i_entry) Get_block_group_lengthxxxz() uint32 {
+func (this *Slookup_i_entry) Get_block_group_length() uint32 {
 	/* return the number of non-zero elements in the block_group_list array. the array is always allocated to its max
 	size, but how many elements are used is defined by where the first zero is. */
 	var retpos uint32 = 0
@@ -217,9 +217,9 @@ func (this *Slookup_i_entry) Get_block_group_pos(block_group_pos uint32) (tools.
 
 	/* this is a data-caused error, nobody should be asking for a position in the block_group_list
 	for an entry that is outside of the range of data stored in the entry. */
-	if block_group_pos > this.Get_block_group_lengthxxxz() {
+	if block_group_pos > this.Get_block_group_length() {
 		return tools.Error(this.log, "trying to get block_group pos ", block_group_pos,
-			" which is greater than the block_group list array length ", this.Get_block_group_lengthxxxz()), 0
+			" which is greater than the block_group list array length ", this.Get_block_group_length()), 0
 	}
 	return nil, (*this.block_group_list)[block_group_pos]
 }
