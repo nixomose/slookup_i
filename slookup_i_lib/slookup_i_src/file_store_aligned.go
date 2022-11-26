@@ -959,6 +959,8 @@ func (this *File_store_aligned) Mark_end(free_position uint32) tools.Ret {
 
 	if is_block_device == false {
 		// now size the file appropriately, if it fails, no big deal, it's a block device. maybe work that out up front and we avoid running the error case on every shrink
+		free_position = this.calc_user_block(free_position) // adjust for file header.
+
 		var newfilesize int64 = int64(free_position) * int64(this.m_header.M_block_size)
 		var err = os.Truncate(this.m_store_filename, int64(newfilesize))
 		if err != nil {
