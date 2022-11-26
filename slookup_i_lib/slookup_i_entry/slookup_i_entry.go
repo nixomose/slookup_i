@@ -332,14 +332,14 @@ func (this *Slookup_i_entry) Deserialize(log *tools.Nixomosetools_logger, bs *[]
 
 	var v []uint32 = make([]uint32, this.block_group_count) // array is fully allocated but set all to zero
 	this.block_group_list = &v
-	for rp := 0; uint32(rp) < this.block_group_count; rp++ {
+	for rp := 0; uint32(rp) < this.block_group_count; rp++ { // optimization: just mass copy this and endian flip later if need be
 		(*this.block_group_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
 		bpos += 4
 	}
 
 	var r []uint32 = make([]uint32, this.block_group_count) // array is fully allocated but set all to zero
 	this.data_block_reverse_lookup_list = &r
-	for rp := 0; uint32(rp) < this.block_group_count; rp++ {
+	for rp := 0; uint32(rp) < this.block_group_count; rp++ { // optimization: mass copy this.
 		(*this.data_block_reverse_lookup_list)[rp] = binary.BigEndian.Uint32(bp[bpos:])
 		bpos += 4
 	}
