@@ -601,8 +601,8 @@ func (this *Slookup_i) check_data_block_limits(data_block_num uint32) tools.Ret 
 /* The stores
    and gets */
 
-func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_byte_pos uint32, start_block uint32,
-	end_pos uint32, end_block uint32, start_offset uint32, alldata *[]byte) {
+func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret tools.Ret, start_byte_pos uint32, physical_start_block uint32,
+	end_pos uint32, physical_end_block uint32, start_offset uint32, alldata *[]byte) {
 
 	/* figure out what block(s) this entry is in and load it/them, storage can only load one block at a time
 	so we might have to concatenate. something we'll have to fix with goroutines someday.
@@ -613,29 +613,35 @@ func (this *Slookup_i) internal_lookup_entry_blocks_load(block_num uint32) (ret 
 	it returns the data for that block, if the entry spills over the boundary of two blocks, then it returns
 	two blocks of data, and finally it returns the position of the entry within this buffer. */
 
+	var logical_start_block uint32
 	start_byte_pos = block_num * this.Get_lookup_entry_size_in_bytes()
-	start_block = (start_byte_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
+	logical_start_block = (start_byte_pos / this.Get_data_block_size_in_bytes())
+	physical_start_block = logical_start_block + this.Get_first_lookup_table_start_block()
 
 	end_pos = start_byte_pos + this.Get_lookup_entry_size_in_bytes()
-	end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
-	end_block += 1 // end_block is one higher than the one we want to read
+	physical_end_block = (end_pos / this.Get_data_block_size_in_bytes()) + this.Get_first_lookup_table_start_block()
+	physical_end_block += 1 // end_block is one higher than the one we want to read
 
-	if ret = this.check_lookup_table_entry_block_limits(start_block); ret != nil {
+	if ret = this.check_lookup_table_entry_block_limits(physical_start_block); ret != nil {
 		return
 	}
 	/* the end block is 1 + the start block so we can read a range, but to actually check the range
 	   limits, the end block we're reading must be within the range of actual lookup table blocks
 		 so we subtract one for this check */
-	if ret = this.check_lookup_table_entry_block_limits(end_block - 1); ret != nil {
+	if ret = this.check_lookup_table_entry_block_limits(physical_end_block - 1); ret != nil {
 		return
 	}
-	if ret, alldata = this.m_transaction_log_storage.Read_block_range(start_block, end_block); ret != nil {
+	if ret, alldata = this.m_transaction_log_storage.Read_block_range(physical_start_block, physical_end_block); ret != nil {
 		return
 	}
 
 	/* get the position of this entry in this alldata. start pos is beginning of alldata, we just have to find the offset
-	   which we can do by getting the remainder of the start pos to the block boundary whiche we read. */
-	start_offset = start_byte_pos % (start_block * this.Get_data_block_size_in_bytes())
+	   which we can do by getting the remainder of the start pos to the block boundary whiche we read.
+		 and that's where I've been going wrong, we don't need to mod anything, we just need to subtract the
+		 position that the start of alldata represents from the absolute position we're looking for. */
+	var start_of_alldata = logical_start_block * this.Get_data_block_size_in_bytes()
+	start_offset = start_byte_pos - start_of_alldata
+
 	return
 
 	// this is all in tlog now.
@@ -1031,21 +1037,19 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 		var delete_list []uint32 = make([]uint32, amount_to_remove)
 		var delete_list_pos uint32 = 0
+
 		/* We have to delete from right to left to maintain the correctness of the block group list. when reading, we need
-		 * to be able to always go from left to right until we get to a zero. If we delete from the left
-		 * we'll have to set a zero in the first position (for really complicated reasons) and then
-		 * there will be valid live blocks in the block group list after that and that's an invalid block group list layout
-		 * so we must delete from right to left. */
-		/// xxxz test for case where we're moving to a zero length block
+				 * to be able to always go from left to right until we get to a zero. If we delete from the left
+				 * we'll have to set a zero in the first position (for really complicated reasons) and then
+				 * there will be valid live blocks in the block group list after that and that's an invalid block group list layout
+				 * so we must delete from right to left. Plus, we're shrinking the data so we're removing blocks off the
+		  	 * end of the stored collection of blocks.*/
+
 		var rp int // must be int, because we're counting down to zero, and need to get to -1 to end loop
 		for rp = int(current_block_group_count - 1); rp >= int(block_group_count_required); rp-- {
-			var ret, resp = entry.Get_block_group_pos(uint32(rp))
+			var ret, block_group_value = entry.Get_block_group_pos(uint32(rp))
 			if ret != nil {
 				return ret
-			}
-			var block_group_value uint32 = resp
-			if block_group_value == 0 { /// xxxz remind me what this is for? this should never happen, this is probably from the java port
-				break
 			}
 			delete_list[delete_list_pos] = block_group_value
 			delete_list_pos++
