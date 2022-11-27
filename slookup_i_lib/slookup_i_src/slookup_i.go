@@ -1229,6 +1229,11 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 				 6.5) we missed this, apparently stree did this and we lost it, we have to update the deleted block's entry.block_group_list to
 				    be all zeroed out to denote that there are no data blocks allocated for that entry anymore.
 						correction, not all zeroed out, but zero out the value of the one block we are deleting.
+						so here's the other fun part that I missed, we don't get the block_num that got deleted
+						because we're only deleting a data block not an entry. so we have to do a reverse lookup
+						on the block that's being deleted, and get the entry_pos (block_num) that holds that
+						block being deleted, so we can look it up to zero out its block_group_list entry for that
+						block.
 		 		 7) deallocate block. this will not overwrite the reverse lookup for that block it will be old stale
 						data of out the valid range of data_blocks that exist/can be referred to,
 						so that reverse lookup entry will get written over when that block is allocated again.
@@ -1293,27 +1298,32 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 
 	// 6.5) read the old deleted block's entry and zero out the block_group_list
 	var forward_entry *slookup_i_lib_entry.Slookup_i_entry
-	if ret, forward_entry = this.Lookup_entry_load(moved_to); ret != nil {
+	var forward_block_group_pos uint32
+	if ret, forward_entry, forward_block_group_pos = this.reverse_lookup_entry_get(moved_to); ret != nil {
 		return
 	}
-	var block_group_list_length = forward_entry.Get_block_group_length()
+
+	if ret, forward_entry = this.Lookup_entry_load(forward_entry.Get_entry_pos()); ret != nil {
+		return
+	}
+	// var block_group_list_length = forward_entry.Get_block_group_length()
 	/* we sorta do actually know which block_group_list entry is being deleted, because we always delete from the end
 	backwards, because we can't have a hole in the block_group_list, so we really kinda know it's the last one in the
 	list, but let's do it right and make sure we're deleting the thing we should be deleting.
 	it might also make sense to, if we find it in the middle, shuffle the rest forward, but that would be wrong too because
-	you can't delete a block out of the middle of an entry's data. it doesn't work like that. */
+	you can't delete a block out of the middle of an entry's data. it doesn't work like that.
+	and actually reverse_lookup_entry_get did this scan for us already so we know what block_group_pos to zero out. */
 
-	var rp uint32
-	for rp = 0; rp < block_group_list_length; rp++ {
-		var block_group_pos uint32
-		if ret, block_group_pos = forward_entry.Get_block_group_pos(rp); ret != nil {
-			return
-		}
-		if block_group_pos == moved_to {
-			forward_entry.Set_block_group_pos(rp, 0)
-			break
-		}
-	}
+	// var rp uint32
+	// for rp = 0; rp < block_group_list_length; rp++ {
+	// 	if ret, forward_block_group_pos = forward_entry.Get_block_group_pos(rp); ret != nil {
+	// 		return
+	// 	}
+	// 	if forward_block_group_pos == moved_to {
+	forward_entry.Set_block_group_pos(forward_block_group_pos, 0)
+	// 		break
+	// 	}
+	// }
 	// write it back out
 	if ret = this.lookup_entry_store_internal(forward_entry.Get_entry_pos(), forward_entry); ret != nil {
 		return
