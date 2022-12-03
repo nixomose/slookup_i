@@ -925,7 +925,7 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 	that has the requested data block to reverse lookup, return the block_num entry,
 	the block_group array index and the value in it.
 	actually don't return that last bit, duh, that's the value they passed us. */
-
+	
 	// used as block_num to find the entry
 	// we store block_group_count number of reverse lookup array entries in each entry.
 	var reverse_lookup_entry_num uint32 = data_block / this.Get_block_group_count()
@@ -1272,29 +1272,9 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		return
 	}
 
-	// 2) do a reverse lookup on the old block_num
-	var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
-	var block_group_pos uint32
-	if ret, reverse_entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
-		return
-	}
-
-	// 	3) update the block_group_pos that pointed to the old block_num to point to the new block_num
-	if ret = reverse_entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
-		return
-	}
-
-	// 	4) write out the entry with the updated block_group array pos setting.
-	if ret = this.lookup_entry_store_internal(reverse_entry.Get_entry_pos(), reverse_entry); ret != nil {
-		return
-	}
-
-	// 	5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
-	// 		 which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
-	// 	6) write that entry out too.
-	if ret = this.reverse_lookup_entry_set(moved_to, reverse_entry.Get_entry_pos()); ret != nil {
-		return
-	}
+	/* we erased the data, let's erase the entry_pos block num reference to it before we go and update
+	the moved block's forward and reverse lookup, because once we do that, we'll have lost the
+	reverse lookup information saying where the data block we deleted came from. that's why we do this first. */
 
 	// 6.5) read the old deleted block's entry and zero out the block_group_list
 	var forward_entry *slookup_i_lib_entry.Slookup_i_entry
@@ -1326,6 +1306,30 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	// }
 	// write it back out
 	if ret = this.lookup_entry_store_internal(forward_entry.Get_entry_pos(), forward_entry); ret != nil {
+		return
+	}
+
+	// 2) do a reverse lookup on the old block_num
+	var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
+	var block_group_pos uint32
+	if ret, reverse_entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
+		return
+	}
+
+	// 	3) update the block_group_pos that pointed to the old block_num to point to the new block_num
+	if ret = reverse_entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
+		return
+	}
+
+	// 	4) write out the entry with the updated block_group array pos setting.
+	if ret = this.lookup_entry_store_internal(reverse_entry.Get_entry_pos(), reverse_entry); ret != nil {
+		return
+	}
+
+	// 	5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
+	// 		 which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
+	// 	6) write that entry out too.
+	if ret = this.reverse_lookup_entry_set(moved_to, reverse_entry.Get_entry_pos()); ret != nil {
 		return
 	}
 
