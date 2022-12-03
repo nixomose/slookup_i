@@ -925,7 +925,7 @@ func (this *Slookup_i) reverse_lookup_entry_get(data_block uint32) (ret tools.Re
 	that has the requested data block to reverse lookup, return the block_num entry,
 	the block_group array index and the value in it.
 	actually don't return that last bit, duh, that's the value they passed us. */
-	
+
 	// used as block_num to find the entry
 	// we store block_group_count number of reverse lookup array entries in each entry.
 	var reverse_lookup_entry_num uint32 = data_block / this.Get_block_group_count()
@@ -1283,9 +1283,6 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		return
 	}
 
-	if ret, forward_entry = this.Lookup_entry_load(forward_entry.Get_entry_pos()); ret != nil {
-		return
-	}
 	// var block_group_list_length = forward_entry.Get_block_group_length()
 	/* we sorta do actually know which block_group_list entry is being deleted, because we always delete from the end
 	backwards, because we can't have a hole in the block_group_list, so we really kinda know it's the last one in the
