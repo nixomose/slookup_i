@@ -1108,7 +1108,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				there's nothing to do, so we have to tidy everything up as part of the delete.
 				So yes, if we shrink, we're going to be updating that same entry's block_group_list once for each
 				block deleted, but that's why we delete them backwards, and that's an optimization for another day. */
-
+		// so wee have to reread entry to pick up any changeeees htat happened to its bloooooooooooock_grrrrrrrroup list
 		ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
 		if ret != nil {
 			return ret
@@ -1291,16 +1291,19 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	you can't delete a block out of the middle of an entry's data. it doesn't work like that.
 	and actually reverse_lookup_entry_get did this scan for us already so we know what block_group_pos to zero out. */
 
-	// var rp uint32
-	// for rp = 0; rp < block_group_list_length; rp++ {
-	// 	if ret, forward_block_group_pos = forward_entry.Get_block_group_pos(rp); ret != nil {
-	// 		return
-	// 	}
-	// 	if forward_block_group_pos == moved_to {
 	forward_entry.Set_block_group_pos(forward_block_group_pos, 0)
-	// 		break
-	// 	}
-	// }
+	/* we also have to shorten the length of the value by a block since we're
+			 removing the rightmost allocated block
+		   this assumes somebody has set the value by this point, which happens when the entry is loaded even if the
+		   actual contents of the value have not been read from disk, entry.deserialize allocate the space the value
+	   	 would take if it was loaded in from disk. */
+	var value_length = forward_entry.Get_value_length()
+
+	value_length -= this.m_header.M_data_block_size
+	var previous_value []byte = *forward_entry.Get_value()
+	var shorter_value []byte = previous_value[0:value_length]
+	forward_entry.Set_value(&shorter_value)
+
 	// write it back out
 	if ret = this.lookup_entry_store_internal(forward_entry.Get_entry_pos(), forward_entry); ret != nil {
 		return
