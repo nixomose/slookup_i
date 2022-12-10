@@ -1032,11 +1032,22 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			 well, don't have that problem here with slookup_i */
 
 		// make a list of the offspring positions to delete
+
 		var amount_to_remove uint32 = current_block_group_count - block_group_count_required
 		this.log.Debug("removing: " + tools.Uint32tostring(amount_to_remove) + " blocks from block group.")
 
-		var delete_list []uint32 = make([]uint32, amount_to_remove)
-		var delete_list_pos uint32 = 0
+		/*12/10/22 I think this whole make a delete list thing was important for stree but
+		  not really need for slookup. We know we need to remove x blocks from the right side of
+		  the block_group list for this block, we can just call physically delete one the number
+		  of times we need to, and as each call is self contained and fixes everything up by itself,
+		  we just reread the entry before deleting the next one and it all should just work.
+		  no need to make a delete list and update it when blocks that are in that list get moved.
+		  this also will allow us to intersperse other reads and writes during a delete, though
+		  you probably don't want to be able to do a read in the middle of a delete. But whatever.
+		  let's try making it simpler. */
+
+		//deprecated var delete_list []uint32 = make([]uint32, amount_to_remove)
+		//deprecated var delete_list_pos uint32 = 0
 
 		/* We have to delete from right to left to maintain the correctness of the block group list. when reading, we need
 				 * to be able to always go from left to right until we get to a zero. If we delete from the left
@@ -1051,36 +1062,39 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			if ret != nil {
 				return ret
 			}
-			delete_list[delete_list_pos] = block_group_value
-			delete_list_pos++
-			this.log.Debug("adding to list to shorten block_group in entry ", entry.Get_entry_pos(),
-				", remove block group position ", rp, " block: ", tools.Uint32tostring(block_group_value))
-		}
+			//deprecated delete_list[delete_list_pos] = block_group_value
+			//deprecated delete_list_pos++
+			//deprecated this.log.Debug("adding to list to shorten block_group in entry ", entry.Get_entry_pos(),
+			//deprecated 	", remove block group position ", rp, " block: ", tools.Uint32tostring(block_group_value))
+			//deprecated 		}
 
-		/* Now go through the delete list individually deleting each item, updating the list if
-		 * something in the list got moved. also you have to remember to keep the reverse lookup list up to date */
+			/* Now go through the delete list individually deleting each item, updating the list if
+			 * something in the list got moved. also you have to remember to keep the reverse lookup list up to date */
 
-		this.log.Debug("going to delete " + tools.Uint32tostring(delete_list_pos) + " items.")
-		var dp uint32
-		for dp = 0; dp < delete_list_pos; dp++ {
-			var pos_to_delete uint32 = delete_list[dp]
-			var ret, moved_from_resp, moved_to_resp = this.physically_delete_one(pos_to_delete)
+			// deprecated this.log.Debug("going to delete " + tools.Uint32tostring(delete_list_pos) + " items.")
+			// deprecated 		var dp uint32
+			// deprecated 		for dp = 0; dp < delete_list_pos; dp++ {
+			// deprecated 			var pos_to_delete uint32 = delete_list[dp]
+			var pos_to_delete = block_group_value
+			this.log.Debug("going to delete data_block: " + tools.Uint32tostring(pos_to_delete))
+			// without the delete list we don't need the from and to anymore.
+			ret, _, _ = this.physically_delete_one(pos_to_delete)
 			if ret != nil {
 				return ret
 			}
 
-			/* now update the remainder of the delete list if anything in it moved. we can do the whole list,
-			 * it doesn't hurt to update something that was already processed/deleted. */
-			var from uint32 = moved_from_resp
-			var to uint32 = moved_to_resp
-			this.log.Debug("moved mover from " + tools.Uint32tostring(from) + " to " + tools.Uint32tostring(to))
-			var wp int
-			for wp = rp + 1; wp < int(delete_list_pos); wp++ { // as we deleted rp in this round, we don't need to update it.
-				if delete_list[wp] == from {
-					delete_list[wp] = to
-					this.log.Debug("mover node " + tools.Uint32tostring(from) + " was in the delete list so we moved it to " + tools.Uint32tostring(to))
-				}
-			}
+			//deprecated 			/* now update the remainder of the delete list if anything in it moved. we can do the whole list,
+			//deprecated 			 * it doesn't hurt to update something that was already processed/deleted. */
+			//deprecated 			var from uint32 = moved_from_resp
+			//deprecated 			var to uint32 = moved_to_resp
+			//deprecated 			this.log.Debug("moved mover from " + tools.Uint32tostring(from) + " to " + tools.Uint32tostring(to))
+			//deprecated 			var wp int
+			//deprecated 			for wp = rp + 1; wp < int(delete_list_pos); wp++ { // as we deleted rp in this round, we don't need to update it.
+			//deprecated 				if delete_list[wp] == from {
+			//deprecated 					delete_list[wp] = to
+			//deprecated 					this.log.Debug("mover node " + tools.Uint32tostring(from) + " was in the delete list so we moved it to " + tools.Uint32tostring(to))
+			//deprecated 				}
+			//deprecated 			}
 			if this.debugprint {
 				this.Print(this.log)
 			}
@@ -1088,7 +1102,7 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 
 		/* so what is on disk is correct, what is in memory is probably/possibly not.
 				* read the entry back in before we do anything. we have to zero out the block_group_list array entries
-				* for the guys we just deleted unless delete does that already.
+				* for the guys we just deleted unless physically delete does that already.
 				* I just checked it doesn't so we have to do that here, but I think that's it.
 				* 8/22/2022 so now physically_delete_one does clear out the entry's block_group_list array entries
 				* so we can probably skip this.
@@ -1102,13 +1116,14 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				so we must refresh here so entry is correct after this no matter what.
 				11/25/2022 so for some reason clearing out the block_group_list for the deleted entry got missed, so I added
 				it as step 6.5 to the physically delete. it's better that it's there since delete now cleans up everything it HAS to.
-				(it does not clean up the reverse lookup for the deleted blocks but as we've already discussed elsewhere that
+				(it does not clean up the reverse lookup for the blocks removed off the end at the free_position but as we've already discussed elsewhere that
 		    doesn't matter.) but unlike what I said a few lines ago, we can't leave it for the else case below that writes out
-				the block to it's shortened form, because if the shortened form is zero bytes in length, it just bails because
-				there's nothing to do, so we have to tidy everything up as part of the delete.
+				the block to its shortened form, because if the shortened form is zero bytes in length, it just bails because
+				there's nothing to do, so we have to tidy everything up as part of the physically delete.
 				So yes, if we shrink, we're going to be updating that same entry's block_group_list once for each
-				block deleted, but that's why we delete them backwards, and that's an optimization for another day. */
-		// so wee have to reread entry to pick up any changeeees htat happened to its bloooooooooooock_grrrrrrrroup list
+				data block deleted, but that's why we delete them backwards, and that's an optimization for another day. */
+		// so wee have to reread entry to pick up any changes htat happened to its block_group list
+		// we definitely took the last value in block_group_list and made it zero and we also might have moved the location of one of the other data_blocks
 		ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
 		if ret != nil {
 			return ret
@@ -1159,6 +1174,8 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 					return ret
 				}
 			}
+			// we updated entry to be accurate at this point with the newly allocated blocks, so now we can just write the value below
+			// and the blocks to write to are already in the entry's block_group_list
 
 			// end of add nodes to make entry bigger because it was too small for this new value
 		} else {
