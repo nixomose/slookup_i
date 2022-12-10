@@ -908,6 +908,11 @@ func (this *Slookup_i) reverse_lookup_entry_set(data_block uint32, entry_block_n
 	if ret, entry = this.Lookup_entry_load(reverse_lookup_entry_num); ret != nil {
 		return ret
 	}
+	this.log.Debug("setting reverse lookup for data_block " + tools.Uint32tostring(data_block) +
+		" global list block: " + tools.Uint32tostring(reverse_lookup_entry_num) +
+		" position " + tools.Uint32tostring(reverse_lookup_entry_pos) + " to point to entry block num: " +
+		tools.Uint32tostring(entry_block_num))
+
 	if ret = entry.Set_reverse_lookup_pos(reverse_lookup_entry_pos, entry_block_num); ret != nil {
 		return ret
 	}
