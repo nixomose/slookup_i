@@ -142,12 +142,12 @@ func test_two_blocks(filename string) tools.Ret {
 	}
 
 	// now add 2 more bytes to that, watch it allocate one more block
-	data = make_block_data(0x25, data_block_size*4+1) // add two compared to above
+	data = make_block_data(0x25, data_block_size*4+1) // add two bytes compared to above
 	if ret = slookup.Write(45, data); ret != nil {
 		return ret
 	}
 
-	// write a data_block after  so there's something to move when we shrink it
+	// write a data_block after  so there's something to move when we shrink block 45
 	data = make_block_data(0x28, data_block_size*3)
 	if ret = slookup.Write(46, data); ret != nil {
 		return ret

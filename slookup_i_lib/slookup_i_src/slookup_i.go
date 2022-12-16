@@ -1087,6 +1087,13 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			if ret != nil {
 				return ret
 			}
+			/* we need to reread entry because it has changed on disk, the block group list for pos to delete has been zeroed out
+			but our in memory copy has not been updated */
+
+			ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
+			if ret != nil {
+				return ret
+			}
 
 			//deprecated 			/* now update the remainder of the delete list if anything in it moved. we can do the whole list,
 			//deprecated 			 * it doesn't hurt to update something that was already processed/deleted. */
@@ -1129,10 +1136,13 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 				data block deleted, but that's why we delete them backwards, and that's an optimization for another day. */
 		// so wee have to reread entry to pick up any changes htat happened to its block_group list
 		// we definitely took the last value in block_group_list and made it zero and we also might have moved the location of one of the other data_blocks
-		ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
-		if ret != nil {
-			return ret
-		}
+
+		/* turns out I had to do it in the deleting-rp loop so this is up to date already. */
+
+		// ret, entry = this.Lookup_entry_load(entry.Get_entry_pos()) // we're just reloading from disk the entry that got modified by physically delete one
+		// if ret != nil {
+		// 	return ret
+		// }
 		// okay so now we have the entry back, zero out the block_group list array entries we just deleted.
 		/* this was actually taken care of in physically_delete_one, so we're done already. */
 
