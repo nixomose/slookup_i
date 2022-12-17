@@ -1295,32 +1295,33 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 	if ret != nil {
 		return
 	}
-	if (free_position - 1) == data_block_num {
+	var deleting_endmost_block bool = false
+	if /* unlikely */ (free_position - 1) == data_block_num {
 		// removing the last allocated block, nothing to do
-		this.log.Debug("The last allocated block is being deleted, nothing to do but deallocate the last block.")
-		moved_from = data_block_num // nothing is being moved, but we have to return something
-		moved_to = data_block_num
-		xxxz this is not true 
-		we still have to update the forward lookup block 
-		and set its block group num field to zero so the next guy to 
+		/*  this is not true
+		we still have to update the forward lookup block
+		and set its block group num field to zero so the next guy to
 		come along and read from that block or add to it, doesn't see the existing
 		value which has been deallocated and try and reuse it. it is the data in
 		the block_group_list that is authoritative about what blocks are currently allocated
-		and in use. 
-		xxxz
+		and in use.
 		need to check we catch all cases, nobody should leave this function without zeroing out a block_group_list array pos.
-		
-		ret = this.deallocate()
-		return
-	}
+		*/
+		this.log.Debug("The last allocated block is being deleted.")
+		moved_from = data_block_num // nothing is being moved, but we have to return something
+		moved_to = data_block_num
+		deleting_endmost_block = true
 
-	// return to caller what we did.
-	moved_from = free_position - 1
-	moved_to = data_block_num
+	} else {
+		// the normal case we have to shuffle a block into the spot we're deleting.
+		// return to caller what we did.
+		moved_from = free_position - 1
+		moved_to = data_block_num
 
-	//	1) copy the data_block from the old block_num to the new block_num
-	if ret = this.copy_data_block(moved_to, moved_from); ret != nil {
-		return
+		//	1) copy the data_block from the old block_num to the new block_num
+		if ret = this.copy_data_block(moved_to, moved_from); ret != nil {
+			return
+		}
 	}
 
 	/* we erased the data, let's erase the entry_pos block num reference to it before we go and update
@@ -1368,28 +1369,29 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		return
 	}
 
-	// 2) do a reverse lookup on the old block_num
-	var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
-	var block_group_pos uint32
-	if ret, reverse_entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
-		return
-	}
+	if deleting_endmost_block == false { // the last deallocated block doesn't need its reverse lookup fixed, we didn't move anything.
+		// 2) do a reverse lookup on the old block_num
+		var reverse_entry *slookup_i_lib_entry.Slookup_i_entry
+		var block_group_pos uint32
+		if ret, reverse_entry, block_group_pos = this.reverse_lookup_entry_get(moved_from); ret != nil {
+			return
+		}
 
-	// 	3) update the block_group_pos that pointed to the old block_num to point to the new block_num
-	if ret = reverse_entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
-		return
-	}
+		// 	3) update the block_group_pos that pointed to the old block_num to point to the new block_num
+		if ret = reverse_entry.Set_block_group_pos(block_group_pos, moved_to); ret != nil {
+			return
+		}
 
-	// 	4) write out the entry with the updated block_group array pos setting.
-	if ret = this.lookup_entry_store_internal(reverse_entry.Get_entry_pos(), reverse_entry); ret != nil {
-		return
-	}
-
-	// 	5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
-	// 		 which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
-	// 	6) write that entry out too.
-	if ret = this.reverse_lookup_entry_set(moved_to, reverse_entry.Get_entry_pos()); ret != nil {
-		return
+		// 	4) write out the entry with the updated block_group array pos setting.
+		if ret = this.lookup_entry_store_internal(reverse_entry.Get_entry_pos(), reverse_entry); ret != nil {
+			return
+		}
+		// 	5) update the new block position's reverse lookup to point to the entry referring to that moved data_block
+		// 		 which was retrieved by the reverse lookup in step 2 and updated in step 3 and 4.
+		// 	6) write that entry out too.
+		if ret = this.reverse_lookup_entry_set(moved_to, reverse_entry.Get_entry_pos()); ret != nil {
+			return
+		}
 	}
 
 	// 	 7) deallocate block. this will not overwrite the reverse lookup for that block it will be old stale
