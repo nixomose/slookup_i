@@ -1300,6 +1300,16 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 		this.log.Debug("The last allocated block is being deleted, nothing to do but deallocate the last block.")
 		moved_from = data_block_num // nothing is being moved, but we have to return something
 		moved_to = data_block_num
+		xxxz this is not true 
+		we still have to update the forward lookup block 
+		and set its block group num field to zero so the next guy to 
+		come along and read from that block or add to it, doesn't see the existing
+		value which has been deallocated and try and reuse it. it is the data in
+		the block_group_list that is authoritative about what blocks are currently allocated
+		and in use. 
+		xxxz
+		need to check we catch all cases, nobody should leave this function without zeroing out a block_group_list array pos.
+		
 		ret = this.deallocate()
 		return
 	}
