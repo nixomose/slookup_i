@@ -1112,6 +1112,15 @@ func (this *Slookup_i) perform_new_value_write(block_num uint32, entry *slookup_
 			}
 		} // loop dp
 
+		/* 12/16/2022 so now I see why I did the delete list.
+		   if I just made a list of blocks up front to delete, I wouldn't need to reload the entry each time around.
+		   what would be better would be to make a "physically_delete_many()" which can go through and do a pile in one
+		   go finding the destination and then moving and updating all in one shot.
+		   you'd have to be careful of the case where thee's overlap so you probably want to sort the list of blocks to
+		   be deleted and handle carefully the case where you're moving into something that's being deleted.
+		   I think this is the same as that special case we ran into in stree which required the sentinel value.
+		   but this will still be a lot quicker. */
+
 		/* so what is on disk is correct, what is in memory is probably/possibly not.
 				* read the entry back in before we do anything. we have to zero out the block_group_list array entries
 				* for the guys we just deleted unless physically delete does that already.
@@ -1325,13 +1334,21 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 
 	forward_entry.Set_block_group_pos(forward_block_group_pos, 0)
 	/* we also have to shorten the length of the value by a block since we're
-			 removing the rightmost allocated block
-		   this assumes somebody has set the value by this point, which happens when the entry is loaded even if the
+	  	 removing the rightmost allocated block
+			 this assumes somebody has set the value by this point, which happens when the entry is loaded even if the
 		   actual contents of the value have not been read from disk, entry.deserialize allocate the space the value
-	   	 would take if it was loaded in from disk. */
-	var value_length = forward_entry.Get_value_length()
+		 	 would take if it was loaded in from disk. */
+	/* fun little problem we ran into:
+	    from the last block we can only delete the length of the data, not the entire block
+		  a full block can be reduced by 4096 but the last block can only be reduced by the modulo of the data
+			that's in there, if the last block is not full */
 
-	value_length -= this.m_header.M_data_block_size
+	var value_length = forward_entry.Get_value_length()
+	var bytes_in_this_block = value_length % this.m_header.M_data_block_size
+	if bytes_in_this_block == 0 { // we are a full block
+		bytes_in_this_block = this.m_header.M_data_block_size
+	}
+	value_length -= bytes_in_this_block
 	var previous_value []byte = *forward_entry.Get_value()
 	var shorter_value []byte = previous_value[0:value_length]
 	forward_entry.Set_value(&shorter_value)
