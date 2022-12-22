@@ -134,35 +134,72 @@ func test_two_blocks(filename string) tools.Ret {
 	slookup.Diag_dump_block(42)
 	slookup.Diag_dump_block(43)
 	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(45)
+	slookup.Diag_dump_block(46)
 
 	/* now write a 4-block_group_count entry */
 	data = make_block_data(0x25, data_block_size*4-1) // -1 makes it interesting
 	if ret = slookup.Write(45, data); ret != nil {
 		return ret
 	}
+	slookup.Diag_dump_slookup_header()
+	slookup.Diag_dump_block(42)
+	slookup.Diag_dump_block(43)
+	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(29) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(45)
+	slookup.Diag_dump_block(46)
 
 	// now add 2 more bytes to that, watch it allocate one more block
 	data = make_block_data(0x25, data_block_size*4+1) // add two bytes compared to above
 	if ret = slookup.Write(45, data); ret != nil {
 		return ret
 	}
+	slookup.Diag_dump_slookup_header()
+	slookup.Diag_dump_block(42)
+	slookup.Diag_dump_block(43)
+	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(29) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(45)
+	slookup.Diag_dump_block(46)
 
 	// write a data_block after  so there's something to move when we shrink block 45
 	data = make_block_data(0x28, data_block_size*3)
 	if ret = slookup.Write(46, data); ret != nil {
 		return ret
 	}
+	slookup.Diag_dump_slookup_header()
+	slookup.Diag_dump_block(42)
+	slookup.Diag_dump_block(43)
+	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(29) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(45)
+	slookup.Diag_dump_block(46)
 
 	// now shrink the 4 block entry down to one block
 	data = make_block_data(0x88, data_block_size*1)
 	if ret = slookup.Write(45, data); ret != nil {
 		return ret
 	}
+	slookup.Diag_dump_slookup_header()
+	slookup.Diag_dump_block(42)
+	slookup.Diag_dump_block(43)
+	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(29) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(45)
+	slookup.Diag_dump_block(46)
 
 	// now discard 46
 	if ret = slookup.Discard(46); ret != nil {
 		return ret
 	}
+	slookup.Diag_dump_slookup_header()
+	slookup.Diag_dump_block(42)
+	slookup.Diag_dump_block(43)
+	slookup.Diag_dump_block(28) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(29) // where the reverse lookup entries are.
+	slookup.Diag_dump_block(45)
+	slookup.Diag_dump_block(46)
 
 	if ret = bring_down(slookup); ret != nil {
 		return ret

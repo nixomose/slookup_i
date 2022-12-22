@@ -1356,7 +1356,7 @@ func (this *Slookup_i) physically_delete_one(data_block_num uint32) (ret tools.R
 
 	var value_length = forward_entry.Get_value_length()
 	var bytes_in_this_block = value_length % this.m_header.M_data_block_size
-	if bytes_in_this_block == 0 { // we are a full block
+	if bytes_in_this_block == 0 { // we are a full block. this works because you can't have an allocated block with zero bytes in it.
 		bytes_in_this_block = this.m_header.M_data_block_size
 	}
 	value_length -= bytes_in_this_block
